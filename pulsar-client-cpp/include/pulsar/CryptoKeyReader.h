@@ -28,7 +28,7 @@ namespace pulsar {
 
 class CryptoKeyReader {
    public:
-    CryptoKeyReader() {}
+    virtual ~CryptoKeyReader() {}
 
     /*
      * Return the encryption key corresponding to the key name in the argument
@@ -62,7 +62,7 @@ class CryptoKeyReader {
 
 }; /* namespace pulsar */
 
-typedef boost::shared_ptr<CryptoKeyReader> CryptoKeyReaderPtr;
+typedef std::shared_ptr<CryptoKeyReader> CryptoKeyReaderPtr;
 }  // namespace pulsar
 
 #pragma GCC visibility pop

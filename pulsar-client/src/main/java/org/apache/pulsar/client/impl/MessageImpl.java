@@ -56,7 +56,9 @@ public class MessageImpl<T> implements Message<T> {
     private Schema<T> schema;
     private Optional<EncryptionContext> encryptionCtx = Optional.empty();
 
+    private String topic; // only set for incoming messages
     transient private Map<String, String> properties;
+    private final int redeliveryCount;
 
     // Constructor for out-going message
     static <T> MessageImpl<T> create(MessageMetadata.Builder msgMetadataBuilder, ByteBuffer payload, Schema<T> schema) {
@@ -64,6 +66,7 @@ public class MessageImpl<T> implements Message<T> {
         MessageImpl<T> msg = (MessageImpl<T>) RECYCLER.get();
         msg.msgMetadataBuilder = msgMetadataBuilder;
         msg.messageId = null;
+        msg.topic = null;
         msg.cnx = null;
         msg.payload = Unpooled.wrappedBuffer(payload);
         msg.properties = null;
@@ -71,29 +74,24 @@ public class MessageImpl<T> implements Message<T> {
         return msg;
     }
 
-    static MessageImpl<byte[]> create(MessageMetadata.Builder msgMetadataBuilder, ByteBuffer payload) {
-        @SuppressWarnings("unchecked")
-        MessageImpl<byte[]> msg = (MessageImpl<byte[]>) RECYCLER.get();
-        msg.msgMetadataBuilder = msgMetadataBuilder;
-        msg.messageId = null;
-        msg.cnx = null;
-        msg.payload = Unpooled.wrappedBuffer(payload);
-        msg.properties = null;
-        msg.schema = Schema.BYTES;
-        return msg;
-    }
-
     // Constructor for incoming message
-    MessageImpl(MessageIdImpl messageId, MessageMetadata msgMetadata, ByteBuf payload, ClientCnx cnx,
-            Schema<T> schema) {
-        this(messageId, msgMetadata, payload, null, cnx, schema);
+    MessageImpl(String topic, MessageIdImpl messageId, MessageMetadata msgMetadata,
+                ByteBuf payload, ClientCnx cnx, Schema<T> schema) {
+        this(topic, messageId, msgMetadata, payload, null, cnx, schema);
     }
 
-    MessageImpl(MessageIdImpl messageId, MessageMetadata msgMetadata, ByteBuf payload,
-            Optional<EncryptionContext> encryptionCtx, ClientCnx cnx, Schema<T> schema) {
+    MessageImpl(String topic, MessageIdImpl messageId, MessageMetadata msgMetadata, ByteBuf payload,
+                Optional<EncryptionContext> encryptionCtx, ClientCnx cnx, Schema<T> schema) {
+        this(topic, messageId, msgMetadata, payload, encryptionCtx, cnx, schema, 0);
+    }
+
+    MessageImpl(String topic, MessageIdImpl messageId, MessageMetadata msgMetadata, ByteBuf payload,
+                Optional<EncryptionContext> encryptionCtx, ClientCnx cnx, Schema<T> schema, int redeliveryCount) {
         this.msgMetadataBuilder = MessageMetadata.newBuilder(msgMetadata);
         this.messageId = messageId;
+        this.topic = topic;
         this.cnx = cnx;
+        this.redeliveryCount = redeliveryCount;
 
         // Need to make a copy since the passed payload is using a ref-count buffer that we don't know when could
         // release, since the Message is passed to the user. Also, the passed ByteBuf is coming from network and is
@@ -110,12 +108,20 @@ public class MessageImpl<T> implements Message<T> {
         this.schema = schema;
     }
 
-    MessageImpl(BatchMessageIdImpl batchMessageIdImpl, MessageMetadata msgMetadata,
-            PulsarApi.SingleMessageMetadata singleMessageMetadata, ByteBuf payload,
-            Optional<EncryptionContext> encryptionCtx, ClientCnx cnx, Schema<T> schema) {
+    MessageImpl(String topic, BatchMessageIdImpl batchMessageIdImpl, MessageMetadata msgMetadata,
+                PulsarApi.SingleMessageMetadata singleMessageMetadata, ByteBuf payload,
+                Optional<EncryptionContext> encryptionCtx, ClientCnx cnx, Schema<T> schema) {
+        this(topic, batchMessageIdImpl, msgMetadata, singleMessageMetadata, payload, encryptionCtx, cnx, schema, 0);
+    }
+
+    MessageImpl(String topic, BatchMessageIdImpl batchMessageIdImpl, MessageMetadata msgMetadata,
+                PulsarApi.SingleMessageMetadata singleMessageMetadata, ByteBuf payload,
+                Optional<EncryptionContext> encryptionCtx, ClientCnx cnx, Schema<T> schema, int redeliveryCount) {
         this.msgMetadataBuilder = MessageMetadata.newBuilder(msgMetadata);
         this.messageId = batchMessageIdImpl;
+        this.topic = topic;
         this.cnx = cnx;
+        this.redeliveryCount = redeliveryCount;
 
         this.payload = Unpooled.copiedBuffer(payload);
         this.encryptionCtx = encryptionCtx;
@@ -142,11 +148,8 @@ public class MessageImpl<T> implements Message<T> {
         this.schema = schema;
     }
 
-    public MessageImpl(String msgId, Map<String, String> properties, byte[] payload, Schema<T> schema) {
-        this(msgId, properties, Unpooled.wrappedBuffer(payload), schema);
-    }
-
-    public MessageImpl(String msgId, Map<String, String> properties, ByteBuf payload, Schema<T> schema) {
+    public MessageImpl(String topic, String msgId, Map<String, String> properties,
+                       ByteBuf payload, Schema<T> schema) {
         String[] data = msgId.split(":");
         long ledgerId = Long.parseLong(data[0]);
         long entryId = Long.parseLong(data[1]);
@@ -155,10 +158,12 @@ public class MessageImpl<T> implements Message<T> {
         } else {
             this.messageId = new MessageIdImpl(ledgerId, entryId, -1);
         }
+        this.topic = topic;
         this.cnx = null;
         this.payload = payload;
         this.properties = Collections.unmodifiableMap(properties);
         this.schema = schema;
+        this.redeliveryCount = 0;
     }
 
     public static MessageImpl<byte[]> deserialize(ByteBuf headersAndPayload) throws IOException {
@@ -170,6 +175,7 @@ public class MessageImpl<T> implements Message<T> {
         msgMetadata.recycle();
         msg.payload = headersAndPayload;
         msg.messageId = null;
+        msg.topic = null;
         msg.cnx = null;
         msg.properties = Collections.emptyMap();
         return msg;
@@ -223,8 +229,23 @@ public class MessageImpl<T> implements Message<T> {
     }
 
     @Override
+    public byte[] getSchemaVersion() {
+        if (msgMetadataBuilder.hasSchemaVersion()) {
+            return msgMetadataBuilder.getSchemaVersion().toByteArray();
+        } else {
+            return null;
+        }
+    }
+
+    @Override
     public T getValue() {
-        return schema.decode(getData());
+        // check if the schema passed in from client supports schema versioning or not
+        // this is an optimization to only get schema version when necessary
+        if (schema.supportSchemaVersioning()) {
+            return schema.decode(getData(), getSchemaVersion());
+        } else {
+            return schema.decode(getData());
+        }
     }
 
     public long getSequenceId() {
@@ -288,6 +309,11 @@ public class MessageImpl<T> implements Message<T> {
     }
 
     @Override
+    public String getTopicName() {
+        return topic;
+    }
+
+    @Override
     public String getKey() {
         checkNotNull(msgMetadataBuilder);
         return msgMetadataBuilder.getPartitionKey();
@@ -316,6 +342,7 @@ public class MessageImpl<T> implements Message<T> {
     public void recycle() {
         msgMetadataBuilder = null;
         messageId = null;
+        topic = null;
         payload = null;
         properties = null;
 
@@ -326,6 +353,7 @@ public class MessageImpl<T> implements Message<T> {
 
     private MessageImpl(Handle<MessageImpl<?>> recyclerHandle) {
         this.recyclerHandle = recyclerHandle;
+        this.redeliveryCount = 0;
     }
 
     private Handle<MessageImpl<?>> recyclerHandle;
@@ -354,5 +382,10 @@ public class MessageImpl<T> implements Message<T> {
     @Override
     public Optional<EncryptionContext> getEncryptionCtx() {
         return encryptionCtx;
+    }
+
+    @Override
+    public int getRedeliveryCount() {
+        return redeliveryCount;
     }
 }

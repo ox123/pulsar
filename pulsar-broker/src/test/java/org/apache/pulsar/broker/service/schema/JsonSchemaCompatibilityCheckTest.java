@@ -25,15 +25,12 @@ import com.fasterxml.jackson.module.jsonSchema.JsonSchemaGenerator;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.Date;
 import java.util.Map;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import org.apache.pulsar.client.api.Producer;
-import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SchemaSerializationException;
 import org.apache.pulsar.client.impl.schema.JSONSchema;
@@ -46,18 +43,8 @@ import org.testng.annotations.Test;
 public class JsonSchemaCompatibilityCheckTest extends BaseAvroSchemaCompatibilityTest{
 
     @Override
-    public SchemaCompatibilityCheck getBackwardsCompatibleSchemaCheck() {
-        return new JsonSchemaCompatibilityCheck(SchemaCompatibilityStrategy.BACKWARD);
-    }
-
-    @Override
-    public SchemaCompatibilityCheck getForwardCompatibleSchemaCheck() {
-        return new JsonSchemaCompatibilityCheck(SchemaCompatibilityStrategy.FORWARD);
-    }
-
-    @Override
-    public SchemaCompatibilityCheck getFullCompatibleSchemaCheck() {
-        return new JsonSchemaCompatibilityCheck(SchemaCompatibilityStrategy.FULL);
+    public SchemaCompatibilityCheck getSchemaCheck() {
+        return new JsonSchemaCompatibilityCheck();
     }
 
     @Test
@@ -66,11 +53,11 @@ public class JsonSchemaCompatibilityCheckTest extends BaseAvroSchemaCompatibilit
         SchemaData from = SchemaData.builder().data(OldJSONSchema.of(Foo.class).getSchemaInfo().getSchema()).build();
         SchemaData to = SchemaData.builder().data(JSONSchema.of(Foo.class).getSchemaInfo().getSchema()).build();
         JsonSchemaCompatibilityCheck jsonSchemaCompatibilityCheck = new JsonSchemaCompatibilityCheck();
-        Assert.assertTrue(jsonSchemaCompatibilityCheck.isCompatible(from, to));
+        Assert.assertTrue(jsonSchemaCompatibilityCheck.isCompatible(from, to, SchemaCompatibilityStrategy.FULL));
 
         from = SchemaData.builder().data(JSONSchema.of(Foo.class).getSchemaInfo().getSchema()).build();
         to = SchemaData.builder().data(OldJSONSchema.of(Foo.class).getSchemaInfo().getSchema()).build();
-        Assert.assertTrue(jsonSchemaCompatibilityCheck.isCompatible(from, to));
+        Assert.assertTrue(jsonSchemaCompatibilityCheck.isCompatible(from, to, SchemaCompatibilityStrategy.FULL));
     }
 
     @Data

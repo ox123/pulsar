@@ -20,6 +20,7 @@ package org.apache.pulsar.zookeeper;
 
 import io.prometheus.client.Gauge;
 
+import org.apache.zookeeper.server.ServerCnxnFactory;
 import org.apache.zookeeper.server.ZooKeeperServer;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
@@ -27,7 +28,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 
 /**
- * Instruments ZooKeeperServer to enable stats reporting on data set and z-node sizess
+ * Instruments ZooKeeperServer to enable stats reporting on data set and z-node sizes
  */
 @Aspect
 public class ZooKeeperServerAspect {
@@ -71,7 +72,12 @@ public class ZooKeeperServerAspect {
                 .setChild(new Gauge.Child() {
                     @Override
                     public double get() {
-                        return zkServer.serverStats().getNumAliveClientConnections();
+                        ServerCnxnFactory cnxFactory = zkServer.getServerCnxnFactory();
+                        if (cnxFactory != null) {
+                            return cnxFactory.getNumAliveConnections();
+                        } else {
+                            return -1;
+                        }
                     }
                 }).register();
 

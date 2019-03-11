@@ -36,6 +36,7 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerConsumerBase;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.auth.AuthenticationTls;
 import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.apache.pulsar.common.policies.data.AuthAction;
@@ -77,7 +78,8 @@ public class ProxyWithAuthorizationNegTest extends ProducerConsumerBase {
         conf.setAuthenticationEnabled(true);
         conf.setAuthorizationEnabled(true);
 
-        conf.setTlsEnabled(true);
+        conf.setBrokerServicePortTls(BROKER_PORT_TLS);
+        conf.setWebServicePortTls(BROKER_WEBSERVICE_PORT_TLS);
         conf.setTlsTrustCertsFilePath(TLS_PROXY_TRUST_CERT_FILE_PATH);
         conf.setTlsCertificateFilePath(TLS_BROKER_CERT_FILE_PATH);
         conf.setTlsKeyFilePath(TLS_BROKER_KEY_FILE_PATH);
@@ -109,7 +111,6 @@ public class ProxyWithAuthorizationNegTest extends ProducerConsumerBase {
         proxyConfig.setServicePortTls(PortManager.nextFreePort());
         proxyConfig.setWebServicePort(PortManager.nextFreePort());
         proxyConfig.setWebServicePortTls(PortManager.nextFreePort());
-        proxyConfig.setTlsEnabledInProxy(true);
         proxyConfig.setTlsEnabledWithBroker(true);
 
         // enable tls and auth&auth at proxy
@@ -157,7 +158,7 @@ public class ProxyWithAuthorizationNegTest extends ProducerConsumerBase {
         log.info("-- Starting {} test --", methodName);
 
         createAdminClient();
-        final String proxyServiceUrl = "pulsar://localhost:" + proxyConfig.getServicePortTls();
+        final String proxyServiceUrl = "pulsar://localhost:" + proxyConfig.getServicePortTls().get();
         // create a client which connects to proxy over tls and pass authData
         PulsarClient proxyClient = createPulsarClient(proxyServiceUrl);
 
@@ -186,13 +187,13 @@ public class ProxyWithAuthorizationNegTest extends ProducerConsumerBase {
         }
         Producer<byte[]> producer;
         try {
-            producer = proxyClient.newProducer()
+            producer = proxyClient.newProducer(Schema.BYTES)
                     .topic("persistent://my-property/proxy-authorization-neg/my-ns/my-topic1").create();
         } catch (Exception ex) {
             // expected
             admin.namespaces().grantPermissionOnNamespace(namespaceName, "Proxy",
                     Sets.newHashSet(AuthAction.produce, AuthAction.consume));
-            producer = proxyClient.newProducer()
+            producer = proxyClient.newProducer(Schema.BYTES)
                     .topic("persistent://my-property/proxy-authorization-neg/my-ns/my-topic1").create();
         }
         final int msgs = 10;

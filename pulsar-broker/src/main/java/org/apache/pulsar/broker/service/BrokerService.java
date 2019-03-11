@@ -74,6 +74,7 @@ import org.apache.bookkeeper.mledger.ManagedLedgerFactory;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.pulsar.broker.PulsarServerException;
 import org.apache.pulsar.broker.PulsarService;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.admin.AdminResource;
@@ -94,6 +95,7 @@ import org.apache.pulsar.broker.web.PulsarWebResource;
 import org.apache.pulsar.broker.zookeeper.aspectj.ClientCnxnAspect;
 import org.apache.pulsar.broker.zookeeper.aspectj.ClientCnxnAspect.EventListner;
 import org.apache.pulsar.broker.zookeeper.aspectj.ClientCnxnAspect.EventType;
+import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -103,6 +105,7 @@ import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 import org.apache.pulsar.common.configuration.FieldContext;
 import org.apache.pulsar.common.naming.NamespaceBundle;
 import org.apache.pulsar.common.naming.NamespaceBundleFactory;
+import org.apache.pulsar.common.naming.NamespaceBundles;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicDomain;
 import org.apache.pulsar.common.naming.TopicName;
@@ -112,7 +115,6 @@ import org.apache.pulsar.common.policies.data.PersistentOfflineTopicStats;
 import org.apache.pulsar.common.policies.data.Policies;
 import org.apache.pulsar.common.policies.data.RetentionPolicies;
 import org.apache.pulsar.common.policies.data.TopicStats;
-import org.apache.pulsar.common.schema.SchemaData;
 import org.apache.pulsar.common.stats.Metrics;
 import org.apache.pulsar.common.util.FieldParser;
 import org.apache.pulsar.common.util.FutureUtil;
@@ -135,8 +137,6 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
 
     private final PulsarService pulsar;
     private final ManagedLedgerFactory managedLedgerFactory;
-    private final int port;
-    private final int tlsPort;
 
     private final ConcurrentOpenHashMap<String, CompletableFuture<Optional<Topic>>> topics;
 
@@ -192,8 +192,6 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
     public BrokerService(PulsarService pulsar) throws Exception {
         this.pulsar = pulsar;
         this.managedLedgerFactory = pulsar.getManagedLedgerFactory();
-        this.port = new URI(pulsar.getBrokerServiceUrl()).getPort();
-        this.tlsPort = new URI(pulsar.getBrokerServiceUrlTls()).getPort();
         this.topics = new ConcurrentOpenHashMap<>();
         this.replicationClients = new ConcurrentOpenHashMap<>();
         this.keepAliveIntervalSeconds = pulsar.getConfiguration().getKeepAliveIntervalSeconds();
@@ -293,25 +291,31 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
 
         bootstrap.childHandler(new PulsarChannelInitializer(pulsar, false));
 
-        // Bind and start to accept incoming connections.
-        InetSocketAddress addr = new InetSocketAddress(pulsar.getBindAddress(), port);
-        try {
-            bootstrap.bind(addr).sync();
-        } catch (Exception e) {
-            throw new IOException("Failed to bind Pulsar broker on " + addr, e);
+        Optional<Integer> port = serviceConfig.getBrokerServicePort();
+        if (port.isPresent()) {
+            // Bind and start to accept incoming connections.
+            InetSocketAddress addr = new InetSocketAddress(pulsar.getBindAddress(), port.get());
+            try {
+                bootstrap.bind(addr).sync();
+            } catch (Exception e) {
+                throw new IOException("Failed to bind Pulsar broker on " + addr, e);
+            }
+            log.info("Started Pulsar Broker service on port {}", port.get());
         }
-        log.info("Started Pulsar Broker service on port {}", port);
-
-        if (serviceConfig.isTlsEnabled()) {
+        
+        Optional<Integer> tlsPort = serviceConfig.getBrokerServicePortTls();
+        if (tlsPort.isPresent()) {
             ServerBootstrap tlsBootstrap = bootstrap.clone();
             tlsBootstrap.childHandler(new PulsarChannelInitializer(pulsar, true));
-            tlsBootstrap.bind(new InetSocketAddress(pulsar.getBindAddress(), tlsPort)).sync();
-            log.info("Started Pulsar Broker TLS service on port {} - TLS provider: {}", tlsPort,
+            tlsBootstrap.bind(new InetSocketAddress(pulsar.getBindAddress(), tlsPort.get())).sync();
+            log.info("Started Pulsar Broker TLS service on port {} - TLS provider: {}", tlsPort.get(),
                     SslContext.defaultServerProvider());
         }
 
         // start other housekeeping functions
-        this.startStatsUpdater();
+        this.startStatsUpdater(
+                serviceConfig.getStatsUpdateInitialDelayInSecs(),
+                serviceConfig.getStatsUpdateFrequencyInSecs());
         this.startInactivityMonitor();
         this.startMessageExpiryMonitor();
         this.startCompactionMonitor();
@@ -321,8 +325,9 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
         ClientCnxnAspect.registerExecutor(pulsar.getExecutor());
     }
 
-    void startStatsUpdater() {
-        statsUpdater.scheduleAtFixedRate(safeRun(this::updateRates), 60, 60, TimeUnit.SECONDS);
+    void startStatsUpdater(int statsUpdateInitailDelayInSecs, int statsUpdateFrequencyInSecs) {
+        statsUpdater.scheduleAtFixedRate(safeRun(this::updateRates),
+                statsUpdateInitailDelayInSecs, statsUpdateFrequencyInSecs, TimeUnit.SECONDS);
 
         // Ensure the broker starts up with initial stats
         updateRates();
@@ -424,8 +429,13 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
     public void unloadNamespaceBundlesGracefully() {
         try {
             // make broker-node unavailable from the cluster
-            if (pulsar.getLoadManager() != null) {
-                pulsar.getLoadManager().get().disableBroker();
+            if (pulsar.getLoadManager() != null && pulsar.getLoadManager().get() != null) {
+                try {
+                    pulsar.getLoadManager().get().disableBroker();
+                } catch (PulsarServerException.NotFoundException ne) {
+                    log.warn("Broker load-manager znode doesn't exist ", ne);
+                    // still continue and release bundle ownership as broker's registration node doesn't exist.
+                }
             }
 
             // unload all namespace-bundles gracefully
@@ -451,19 +461,14 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
     }
 
     public CompletableFuture<Optional<Topic>> getTopicIfExists(final String topic) {
-        return getTopic(topic, false /* createIfMissing */, null /* schemaData */ );
+        return getTopic(topic, false /* createIfMissing */);
     }
 
-    public CompletableFuture<Topic> getOrCreateTopic(final String topic) {
-        return getOrCreateTopic(topic, null);
+    public CompletableFuture<Topic> getOrCreateTopic(final String topic) { 
+        return getTopic(topic, pulsar.getConfiguration().isAllowAutoTopicCreation()).thenApply(Optional::get); 
     }
 
-    public CompletableFuture<Topic> getOrCreateTopic(final String topic, SchemaData schemaData) {
-        return getTopic(topic, true /* createIfMissing */, schemaData ).thenApply(Optional::get);
-    }
-
-    private CompletableFuture<Optional<Topic>> getTopic(final String topic, boolean createIfMissing,
-            SchemaData schemaData) {
+    public CompletableFuture<Optional<Topic>> getTopic(final String topic, boolean createIfMissing) {
         try {
             CompletableFuture<Optional<Topic>> topicFuture = topics.get(topic);
             if (topicFuture != null) {
@@ -477,8 +482,8 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
             }
             final boolean isPersistentTopic = TopicName.get(topic).getDomain().equals(TopicDomain.persistent);
             return topics.computeIfAbsent(topic, (topicName) -> {
-                return isPersistentTopic ? this.loadOrCreatePersistentTopic(topicName, createIfMissing, schemaData)
-                        : createNonPersistentTopic(topicName, schemaData);
+                    return isPersistentTopic ? this.loadOrCreatePersistentTopic(topicName, createIfMissing)
+                        : createNonPersistentTopic(topicName);
             });
         } catch (IllegalArgumentException e) {
             log.warn("[{}] Illegalargument exception when loading topic", topic, e);
@@ -495,7 +500,7 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
         }
     }
 
-    private CompletableFuture<Optional<Topic>> createNonPersistentTopic(String topic, SchemaData schemaData) {
+    private CompletableFuture<Optional<Topic>> createNonPersistentTopic(String topic) {
         CompletableFuture<Optional<Topic>> topicFuture = new CompletableFuture<>();
 
         if (!pulsar.getConfiguration().isEnableNonPersistentTopics()) {
@@ -526,15 +531,7 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
             return null;
         });
 
-        return topicFuture.thenCompose(ot -> {
-            if (ot.isPresent()) {
-                // If a schema is provided, add or validate it before the
-                // topic is "visible"
-                return ot.get().addSchema(schemaData).thenApply(schemaVersion -> ot);
-            } else {
-                return CompletableFuture.completedFuture(ot);
-            }
-        });
+        return topicFuture;
     }
 
     private static <T> CompletableFuture<T> failedFuture(Throwable t) {
@@ -562,7 +559,7 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
                     clientBuilder.authentication(pulsar.getConfiguration().getBrokerClientAuthenticationPlugin(),
                             pulsar.getConfiguration().getBrokerClientAuthenticationParameters());
                 }
-                if (pulsar.getConfiguration().isReplicationTlsEnabled()) {
+                if (pulsar.getConfiguration().isBrokerClientTlsEnabled()) {
                     clientBuilder
                             .serviceUrl(isNotBlank(data.getBrokerServiceUrlTls()) ? data.getBrokerServiceUrlTls()
                                     : data.getServiceUrlTls())
@@ -592,7 +589,7 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
      * @throws RuntimeException
      */
     protected CompletableFuture<Optional<Topic>> loadOrCreatePersistentTopic(final String topic,
-            boolean createIfMissing, SchemaData schemaData) throws RuntimeException {
+            boolean createIfMissing) throws RuntimeException {
         checkTopicNsOwnership(topic);
 
         final CompletableFuture<Optional<Topic>> topicFuture = new CompletableFuture<>();
@@ -620,18 +617,11 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
                 log.debug("topic-loading for {} added into pending queue", topic);
             }
         }
-        return topicFuture.thenCompose(ot -> {
-            if (ot.isPresent()) {
-                // If a schema is provided, add or validate it before the
-                // topic is "visible"
-                return ot.get().addSchema(schemaData).thenApply(schemaVersion -> ot);
-            } else {
-                return CompletableFuture.completedFuture(ot);
-            }
-        });
+        return topicFuture;
     }
 
-    private void createPersistentTopic(final String topic, boolean createIfMissing, CompletableFuture<Optional<Topic>> topicFuture) {
+    private void createPersistentTopic(final String topic, boolean createIfMissing, 
+    		CompletableFuture<Optional<Topic>> topicFuture) {
 
         final long topicCreateTimeMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
         TopicName topicName = TopicName.get(topic);
@@ -757,6 +747,8 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
 
             managedLedgerConfig.setMetadataOperationsTimeoutSeconds(
                     serviceConfig.getManagedLedgerMetadataOperationsTimeoutSeconds());
+            managedLedgerConfig.setReadEntryTimeoutSeconds(serviceConfig.getManagedLedgerReadEntryTimeoutSeconds());
+            managedLedgerConfig.setAddEntryTimeoutSeconds(serviceConfig.getManagedLedgerAddEntryTimeoutSeconds());
             managedLedgerConfig.setMetadataEnsembleSize(serviceConfig.getManagedLedgerDefaultEnsembleSize());
             managedLedgerConfig.setMetadataWriteQuorumSize(serviceConfig.getManagedLedgerDefaultWriteQuorum());
             managedLedgerConfig.setMetadataAckQuorumSize(serviceConfig.getManagedLedgerDefaultAckQuorum());
@@ -952,7 +944,7 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
         });
     }
 
-    void checkTopicNsOwnership(final String topic) throws RuntimeException {
+    public void checkTopicNsOwnership(final String topic) throws RuntimeException {
         TopicName topicName = TopicName.get(topic);
         boolean ownedByThisInstance;
         try {
@@ -1065,6 +1057,46 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
                 });
             }
         });
+        
+        // sometimes, some brokers don't receive policies-update watch and miss to remove replication-cluster and still
+        // own the bundle. That can cause data-loss for TODO: git-issue
+        unloadDeletedReplNamespace(data, namespace);
+    }
+
+    /**
+     * Unloads the namespace bundles if local cluster is not part of replication-cluster list into the namespace.
+     * So, broker that owns the bundle and doesn't receive the zk-watch will unload the namespace.
+     * @param data
+     * @param namespace
+     */
+    private void unloadDeletedReplNamespace(Policies data, NamespaceName namespace) {
+        if (!namespace.isGlobal()) {
+            return;
+        }
+        final String localCluster = this.pulsar.getConfiguration().getClusterName();
+        if (!data.replication_clusters.contains(localCluster)) {
+            try {
+                NamespaceBundles bundles = pulsar().getNamespaceService().getNamespaceBundleFactory()
+                        .getBundles(namespace);
+                bundles.getBundles().forEach(bundle -> {
+                    pulsar.getNamespaceService().isNamespaceBundleOwned(bundle).thenAccept(isExist -> {
+                        if (isExist) {
+                            this.pulsar().getExecutor().submit(() -> {
+                                try {
+                                    pulsar().getAdminClient().namespaces().unloadNamespaceBundle(namespace.toString(),
+                                            bundle.getBundleRange());
+                                } catch (Exception e) {
+                                    log.error("Failed to unload namespace-bundle {}-{} that not owned by {}, {}",
+                                            namespace.toString(), bundle.toString(), localCluster, e.getMessage());
+                                }
+                            });
+                        }
+                    });
+                });
+            } catch (Exception e) {
+                log.error("Failed to unload locally not owned bundles {}", e.getMessage(), e);
+            }
+        }
     }
 
     public PulsarService pulsar() {
@@ -1190,10 +1222,8 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
         this.pulsar().getExecutor().execute(() -> {
             // update message-rate for each topic
             forEachTopic(topic -> {
-                if (topic instanceof PersistentTopic) {
-                    PersistentTopic persistentTopic = (PersistentTopic) topic;
-                    // it first checks namespace-policy rate and if not present then applies broker-config
-                    persistentTopic.getDispatchRateLimiter().updateDispatchRate();
+                if (topic.getDispatchRateLimiter().isPresent()) {
+                    topic.getDispatchRateLimiter().get().updateDispatchRate();
                 }
             });
         });
@@ -1204,13 +1234,9 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
             // update message-rate for each topic subscription
             forEachTopic(topic -> {
                 topic.getSubscriptions().forEach((subName, persistentSubscription) -> {
-                    if (persistentSubscription.getDispatcher() instanceof PersistentDispatcherMultipleConsumers) {
-                        ((PersistentDispatcherMultipleConsumers) persistentSubscription.getDispatcher())
-                                .getDispatchRateLimiter().updateDispatchRate();
-                    } else if (persistentSubscription
-                            .getDispatcher() instanceof PersistentDispatcherSingleActiveConsumer) {
-                        ((PersistentDispatcherSingleActiveConsumer) persistentSubscription.getDispatcher())
-                                .getDispatchRateLimiter().updateDispatchRate();
+                    Dispatcher dispatcher = persistentSubscription.getDispatcher();
+                    if (dispatcher.getRateLimiter().isPresent()) {
+                        dispatcher.getRateLimiter().get().updateDispatchRate();
                     }
                 });
             });
@@ -1353,6 +1379,15 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
         return dynamicConfigurationMap.keys();
     }
 
+    public Map<String, String> getRuntimeConfiguration() {
+        Map<String, String> configMap = Maps.newHashMap();
+        ConcurrentOpenHashMap<String, Object> runtimeConfigurationMap = getRuntimeConfigurationMap();
+        runtimeConfigurationMap.forEach((key, value) -> {
+            configMap.put(key, String.valueOf(value));
+        });
+        return configMap;
+    }
+
     public static boolean isDynamicConfiguration(String key) {
         return dynamicConfigurationMap.containsKey(key);
     }
@@ -1375,6 +1410,22 @@ public class BrokerService implements Closeable, ZooKeeperCacheListener<Policies
             }
         }
         return dynamicConfigurationMap;
+    }
+
+    private ConcurrentOpenHashMap<String, Object> getRuntimeConfigurationMap() {
+        ConcurrentOpenHashMap<String, Object> runtimeConfigurationMap = new ConcurrentOpenHashMap<>();
+        for (Field field : ServiceConfiguration.class.getDeclaredFields()) {
+            if (field != null && field.isAnnotationPresent(FieldContext.class)) {
+                field.setAccessible(true);
+                try {
+                    Object configValue = field.get(pulsar.getConfiguration());
+                    runtimeConfigurationMap.put(field.getName(), configValue == null ? "" : configValue);
+                } catch (Exception e) {
+                    log.error("Failed to get value of field {}, {}", field.getName(), e.getMessage());
+                }
+            }
+        }
+        return runtimeConfigurationMap;
     }
 
     /**

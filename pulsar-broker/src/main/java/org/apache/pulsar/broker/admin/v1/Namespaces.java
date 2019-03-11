@@ -35,6 +35,7 @@ import org.apache.pulsar.common.policies.data.PersistencePolicies;
 import org.apache.pulsar.common.policies.data.Policies;
 import org.apache.pulsar.common.policies.data.RetentionPolicies;
 import org.apache.pulsar.common.policies.data.SubscriptionAuthMode;
+import org.apache.pulsar.common.policies.data.SchemaAutoUpdateCompatibilityStrategy;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -225,6 +226,19 @@ public class Namespaces extends NamespacesBase {
         internalGrantPermissionOnNamespace(role, actions);
     }
 
+    @POST
+    @Path("/{property}/{cluster}/{namespace}/permissions/subscription/{subscription}")
+    @ApiOperation(hidden = true, value = "Grant a new permission to roles for a subscription.")
+    @ApiResponses(value = { @ApiResponse(code = 403, message = "Don't have admin permission"),
+            @ApiResponse(code = 404, message = "Property or cluster or namespace doesn't exist"),
+            @ApiResponse(code = 409, message = "Concurrent modification"),
+            @ApiResponse(code = 501, message = "Authorization is not enabled")})
+    public void grantPermissionOnSubscription(@PathParam("property") String property, @PathParam("cluster") String cluster,
+            @PathParam("namespace") String namespace, @PathParam("subscription") String subscription, Set<String> roles) {
+        validateNamespaceName(property, cluster, namespace);
+        internalGrantPermissionOnSubscription(subscription, roles);
+    }
+
     @DELETE
     @Path("/{property}/{cluster}/{namespace}/permissions/{role}")
     @ApiOperation(hidden = true, value = "Revoke all permissions to a role on a namespace.")
@@ -235,6 +249,18 @@ public class Namespaces extends NamespacesBase {
             @PathParam("role") String role) {
         validateNamespaceName(property, cluster, namespace);
         internalRevokePermissionsOnNamespace(role);
+    }
+
+    @DELETE
+    @Path("/{property}/{cluster}/{namespace}/permissions/{subscription}/{role}")
+    @ApiOperation(hidden = true, value = "Revoke subscription admin-api access permission for a role.")
+    @ApiResponses(value = { @ApiResponse(code = 403, message = "Don't have admin permission"),
+            @ApiResponse(code = 404, message = "Property or cluster or namespace doesn't exist") })
+    public void revokePermissionOnSubscription(@PathParam("property") String property,
+            @PathParam("cluster") String cluster, @PathParam("namespace") String namespace,
+            @PathParam("subscription") String subscription, @PathParam("role") String role) {
+        validateNamespaceName(property, cluster, namespace);
+        internalRevokePermissionsOnSubscription(subscription, role);
     }
 
     @GET
@@ -769,6 +795,40 @@ public class Namespaces extends NamespacesBase {
                                     long newThreshold) {
         validateNamespaceName(property, cluster, namespace);
         internalSetOffloadThreshold(newThreshold);
+    }
+
+    @GET
+    @Path("/{tenant}/{cluster}/{namespace}/schemaAutoUpdateCompatibilityStrategy")
+    @ApiOperation(value = "The strategy used to check the compatibility of new schemas,"
+                          + " provided by producers, before automatically updating the schema",
+                  notes = "The value AutoUpdateDisabled prevents producers from updating the schema. "
+                          + " If set to AutoUpdateDisabled, schemas must be updated through the REST api")
+    @ApiResponses(value = { @ApiResponse(code = 403, message = "Don't have admin permission"),
+                            @ApiResponse(code = 404, message = "Namespace doesn't exist"),
+                            @ApiResponse(code = 409, message = "Concurrent modification") })
+    public SchemaAutoUpdateCompatibilityStrategy getSchemaAutoUpdateCompatibilityStrategy(
+            @PathParam("tenant") String tenant,
+            @PathParam("cluster") String cluster,
+            @PathParam("namespace") String namespace) {
+        validateNamespaceName(tenant, cluster, namespace);
+        return internalGetSchemaAutoUpdateCompatibilityStrategy();
+    }
+
+    @PUT
+    @Path("/{tenant}/{cluster}/{namespace}/schemaAutoUpdateCompatibilityStrategy")
+    @ApiOperation(value = "Update the strategy used to check the compatibility of new schemas,"
+                          + " provided by producers, before automatically updating the schema",
+                  notes = "The value AutoUpdateDisabled prevents producers from updating the schema. "
+                          + " If set to AutoUpdateDisabled, schemas must be updated through the REST api")
+    @ApiResponses(value = { @ApiResponse(code = 403, message = "Don't have admin permission"),
+                            @ApiResponse(code = 404, message = "Namespace doesn't exist"),
+                            @ApiResponse(code = 409, message = "Concurrent modification") })
+    public void setSchemaAutoUpdateCompatibilityStrategy(@PathParam("tenant") String tenant,
+                                                         @PathParam("cluster") String cluster,
+                                                         @PathParam("namespace") String namespace,
+                                                         SchemaAutoUpdateCompatibilityStrategy strategy) {
+        validateNamespaceName(tenant, cluster, namespace);
+        internalSetSchemaAutoUpdateCompatibilityStrategy(strategy);
     }
 
     private static final Logger log = LoggerFactory.getLogger(Namespaces.class);

@@ -48,11 +48,11 @@ void pulsar_message_set_sequence_id(pulsar_message_t *message, int64_t sequenceI
     message->builder.setSequenceId(sequenceId);
 }
 
-void pulsar_message_set_replication_clusters(pulsar_message_t *message, const char **clusters) {
-    const char *c = clusters[0];
+void pulsar_message_set_replication_clusters(pulsar_message_t *message, const char **clusters, size_t size) {
+    const char **c = clusters;
     std::vector<std::string> clustersList;
-    while (c) {
-        clustersList.push_back(c);
+    for (size_t i = 0; i < size; i++) {
+        clustersList.push_back(*c);
         ++c;
     }
 
@@ -99,4 +99,8 @@ pulsar_string_map_t *pulsar_message_get_properties(pulsar_message_t *message) {
     pulsar_string_map_t *map = pulsar_string_map_create();
     map->map = message->message.getProperties();
     return map;
+}
+
+const char *pulsar_message_get_topic_name(pulsar_message_t *message) {
+    return message->message.getTopicName().c_str();
 }

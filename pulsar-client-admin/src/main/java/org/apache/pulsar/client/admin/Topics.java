@@ -32,10 +32,10 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.common.partition.PartitionedTopicMetadata;
 import org.apache.pulsar.common.policies.data.AuthAction;
+import org.apache.pulsar.common.policies.data.PartitionedTopicInternalStats;
 import org.apache.pulsar.common.policies.data.PartitionedTopicStats;
 import org.apache.pulsar.common.policies.data.PersistentTopicInternalStats;
 import org.apache.pulsar.common.policies.data.TopicStats;
-import org.omg.CosNaming.NamingContextPackage.NotFound;
 
 import com.google.gson.JsonObject;
 
@@ -203,6 +203,18 @@ public interface Topics {
     void createPartitionedTopic(String topic, int numPartitions) throws PulsarAdminException;
 
     /**
+     * Create a non-partitioned topic.
+     * 
+     * <p>
+     * Create a non-partitioned topic. 
+     * <p>
+     * 
+     * @param topic Topic name
+     * @throws PulsarAdminException
+     */
+    void createNonPartitionedTopic(String topic) throws PulsarAdminException;
+
+    /**
      * Create a partitioned topic asynchronously.
      * <p>
      * Create a partitioned topic asynchronously. It needs to be called before creating a producer for a partitioned
@@ -216,6 +228,13 @@ public interface Topics {
      * @return a future that can be used to track when the partitioned topic is created
      */
     CompletableFuture<Void> createPartitionedTopicAsync(String topic, int numPartitions);
+
+    /**
+     * Create a non-partitioned topic asynchronously.
+     * 
+     * @param topic Topic name
+     */
+    CompletableFuture<Void> createNonPartitionedTopicAsync(String topic);
 
     /**
      * Update number of partitions of a non-global partitioned topic.
@@ -676,6 +695,26 @@ public interface Topics {
     CompletableFuture<PartitionedTopicStats> getPartitionedStatsAsync(String topic, boolean perPartition);
 
     /**
+     * Get the stats for the partitioned topic
+     * 
+     * @param topic
+     * @param perPartition
+     * @return
+     * @throws PulsarAdminException
+     */
+    PartitionedTopicInternalStats getPartitionedInternalStats(String topic)
+            throws PulsarAdminException;
+
+    /**
+     * Get the stats-internal for the partitioned topic asynchronously
+     *
+     * @param topic
+     *            topic Name
+     * @return a future that can be used to track when the partitioned topic statistics are returned
+     */
+    CompletableFuture<PartitionedTopicInternalStats> getPartitionedInternalStatsAsync(String topic);
+
+    /**
      * Delete a subscription.
      * <p>
      * Delete a persistent subscription from a topic. There should not be any active consumers on the subscription.
@@ -997,4 +1036,13 @@ public interface Topics {
      * @return the status of the offload operation
      */
     OffloadProcessStatus offloadStatus(String topic) throws PulsarAdminException;
+
+    /**
+     * Get the last commit message Id of a topic
+     *
+     * @param topic the topic name
+     * @return
+     * @throws PulsarAdminException
+     */
+    MessageId getLastMessageId(String topic) throws PulsarAdminException;
 }

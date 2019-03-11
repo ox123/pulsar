@@ -30,7 +30,6 @@ import org.apache.flink.streaming.api.operators.StreamSource;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.util.AbstractStreamOperatorTestHarness;
-
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerStats;
 import org.apache.pulsar.client.api.Message;
@@ -39,11 +38,12 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.MessageImpl;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.apache.pulsar.shade.io.netty.buffer.Unpooled;
 import org.mockito.Mockito;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -81,7 +81,7 @@ public class PulsarConsumerSourceTests {
 
     private Exception exception;
 
-    @Before
+    @BeforeMethod
     public void before() {
         context = new TestSourceContext();
 
@@ -94,7 +94,7 @@ public class PulsarConsumerSourceTests {
         });
     }
 
-    @After
+    @AfterMethod
     public void after() throws Exception {
         if (source != null) {
             source.cancel();
@@ -429,6 +429,14 @@ public class PulsarConsumerSourceTests {
         }
 
         @Override
+        public void negativeAcknowledge(Message<?> message) {
+        }
+
+        @Override
+        public void negativeAcknowledge(MessageId messageId) {
+        }
+
+        @Override
         public void acknowledgeCumulative(Message<?> message) throws PulsarClientException {
 
         }
@@ -490,7 +498,17 @@ public class PulsarConsumerSourceTests {
         }
 
         @Override
+        public void seek(long timestamp) throws PulsarClientException {
+
+        }
+
+        @Override
         public CompletableFuture<Void> seekAsync(MessageId messageId) {
+            return null;
+        }
+
+        @Override
+        public CompletableFuture<Void> seekAsync(long timestamp) {
             return null;
         }
 
@@ -502,6 +520,14 @@ public class PulsarConsumerSourceTests {
         @Override
         public String getConsumerName() {
             return "test-consumer-0";
+        }
+
+        @Override
+        public void pause() {
+        }
+
+        @Override
+        public void resume() {
         }
     }
 
@@ -515,7 +541,8 @@ public class PulsarConsumerSourceTests {
     }
 
     private static Message<byte[]> createMessage(String content, String messageId) {
-        return new MessageImpl<>(messageId, Collections.emptyMap(), content.getBytes(), Schema.BYTES);
+        return new MessageImpl<byte[]>("my-topic", messageId, Collections.emptyMap(),
+                                       Unpooled.wrappedBuffer(content.getBytes()), Schema.BYTES);
     }
 
     private static String createMessageId(long ledgerId, long entryId, long partitionIndex) {

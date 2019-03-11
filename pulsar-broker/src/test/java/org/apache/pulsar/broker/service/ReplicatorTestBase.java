@@ -20,6 +20,8 @@ package org.apache.pulsar.broker.service;
 
 import static org.testng.Assert.assertEquals;
 
+import com.google.common.collect.Sets;
+
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,12 +37,12 @@ import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.client.api.MessageBuilder;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageRoutingMode;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.common.policies.data.ClusterData;
 import org.apache.pulsar.common.policies.data.TenantInfo;
@@ -49,9 +51,6 @@ import org.apache.pulsar.zookeeper.LocalBookkeeperEnsemble;
 import org.apache.pulsar.zookeeper.ZookeeperServerTest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 public class ReplicatorTestBase {
     URL url1;
@@ -81,7 +80,7 @@ public class ReplicatorTestBase {
 
     ZookeeperServerTest globalZkS;
 
-    ExecutorService executor = new ThreadPoolExecutor(5, 20, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
+    ExecutorService executor = new ThreadPoolExecutor(5, 20, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
     static final int TIME_TO_CHECK_BACKLOG_QUOTA = 5;
 
@@ -105,7 +104,7 @@ public class ReplicatorTestBase {
 
         // Start region 1
         int zkPort1 = PortManager.nextFreePort();
-        bkEnsemble1 = new LocalBookkeeperEnsemble(3, zkPort1, PortManager.nextFreePort());
+        bkEnsemble1 = new LocalBookkeeperEnsemble(3, zkPort1, () -> PortManager.nextFreePort());
         bkEnsemble1.start();
 
         int webServicePort1 = PortManager.nextFreePort();
@@ -125,7 +124,6 @@ public class ReplicatorTestBase {
                 inSec(getBrokerServicePurgeInactiveFrequency(), TimeUnit.SECONDS));
         config1.setBrokerServicePort(PortManager.nextFreePort());
         config1.setBrokerServicePortTls(PortManager.nextFreePort());
-        config1.setTlsEnabled(true);
         config1.setTlsCertificateFilePath(TLS_SERVER_CERT_FILE_PATH);
         config1.setTlsKeyFilePath(TLS_SERVER_KEY_FILE_PATH);
         config1.setTlsTrustCertsFilePath(TLS_SERVER_CERT_FILE_PATH);
@@ -143,7 +141,7 @@ public class ReplicatorTestBase {
 
         // Start zk & bks
         int zkPort2 = PortManager.nextFreePort();
-        bkEnsemble2 = new LocalBookkeeperEnsemble(3, zkPort2, PortManager.nextFreePort());
+        bkEnsemble2 = new LocalBookkeeperEnsemble(3, zkPort2, () -> PortManager.nextFreePort());
         bkEnsemble2.start();
 
         int webServicePort2 = PortManager.nextFreePort();
@@ -159,7 +157,6 @@ public class ReplicatorTestBase {
                 inSec(getBrokerServicePurgeInactiveFrequency(), TimeUnit.SECONDS));
         config2.setBrokerServicePort(PortManager.nextFreePort());
         config2.setBrokerServicePortTls(PortManager.nextFreePort());
-        config2.setTlsEnabled(true);
         config2.setTlsCertificateFilePath(TLS_SERVER_CERT_FILE_PATH);
         config2.setTlsKeyFilePath(TLS_SERVER_KEY_FILE_PATH);
         config2.setTlsTrustCertsFilePath(TLS_SERVER_CERT_FILE_PATH);
@@ -177,7 +174,7 @@ public class ReplicatorTestBase {
 
         // Start zk & bks
         int zkPort3 = PortManager.nextFreePort();
-        bkEnsemble3 = new LocalBookkeeperEnsemble(3, zkPort3, PortManager.nextFreePort());
+        bkEnsemble3 = new LocalBookkeeperEnsemble(3, zkPort3, () -> PortManager.nextFreePort());
         bkEnsemble3.start();
 
         int webServicePort3 = PortManager.nextFreePort();
@@ -311,12 +308,15 @@ public class ReplicatorTestBase {
 
         }
 
-        void produce(int messages, MessageBuilder<byte[]> messageBuilder) throws Exception {
+        TypedMessageBuilder<byte[]> newMessage() {
+            return producer.newMessage();
+        }
+
+        void produce(int messages, TypedMessageBuilder<byte[]> messageBuilder) throws Exception {
             log.info("Start sending messages");
             for (int i = 0; i < messages; i++) {
                 final String m = new String("test-builder-" + i);
-                messageBuilder.setContent(m.getBytes());
-                producer.send(messageBuilder.build());
+                messageBuilder.value(m.getBytes()).send();
                 log.info("Sent message {}", m);
             }
         }
@@ -355,7 +355,7 @@ public class ReplicatorTestBase {
 
         void receive(int messages) throws Exception {
             log.info("Start receiving messages");
-            Message<byte[]> msg = null;
+            Message<byte[]> msg;
 
             for (int i = 0; i < messages; i++) {
                 msg = consumer.receive();

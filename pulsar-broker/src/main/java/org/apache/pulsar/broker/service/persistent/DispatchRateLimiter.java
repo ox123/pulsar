@@ -26,6 +26,8 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.apache.pulsar.broker.cache.ConfigurationCacheService.POLICIES;
+
+import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.service.BrokerService;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.common.naming.NamespaceName;
@@ -48,7 +50,6 @@ public class DispatchRateLimiter {
         this.subscriptionName = subscriptionName;
         this.brokerService = topic.getBrokerService();
         updateDispatchRate();
-        registerLocalPoliciesListener();
     }
 
     public DispatchRateLimiter(PersistentTopic topic) {
@@ -105,7 +106,7 @@ public class DispatchRateLimiter {
      * default broker dispatch-throttling-rate
      */
     public void updateDispatchRate() {
-        DispatchRate dispatchRate = getPoliciesDispatchRate();
+        DispatchRate dispatchRate = getPoliciesDispatchRate(brokerService);
         if (dispatchRate == null) {
             if (subscriptionName == null) {
                 dispatchRate = new DispatchRate(brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerTopicInMsg(),
@@ -119,40 +120,55 @@ public class DispatchRateLimiter {
         log.info("[{}] [{}] configured message-dispatch rate at broker {}", this.topicName, this.subscriptionName, dispatchRate);
     }
 
-    /**
-     * Register listener on namespace policy change to update dispatch-rate if required
-     *
-     */
-    private void registerLocalPoliciesListener() {
-        brokerService.pulsar().getConfigurationCache().policiesCache().registerListener((path, data, stat) -> {
-            final NamespaceName namespace = TopicName.get(this.topicName).getNamespaceObject();
-            final String cluster = brokerService.pulsar().getConfiguration().getClusterName();
-            final String policiesPath = path(POLICIES, namespace.toString());
-            if (policiesPath.equals(path)) {
-                DispatchRate dispatchRate;
-                if (subscriptionName == null) {
-                    dispatchRate = data.clusterDispatchRate.get(cluster);
-                } else {
-                    dispatchRate = data.subscriptionDispatchRate.get(cluster);
-                }
-                // update dispatch-rate only if it's configured in policies else ignore
-                if (dispatchRate != null) {
-                    int inMsg = (subscriptionName == null) ?
-                        brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerTopicInMsg() :
-                        brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerSubscriptionInMsg();
-                    long inByte = (subscriptionName == null) ?
-                        brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerTopicInByte() :
-                        brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerSubscribeInByte();
-                    final DispatchRate newDispatchRate = new DispatchRate(inMsg, inByte, 1);
-                    // if policy-throttling rate is disabled and cluster-throttling is enabled then apply
-                    // cluster-throttling rate
-                    if (!isDispatchRateEnabled(dispatchRate) && isDispatchRateEnabled(newDispatchRate)) {
-                        dispatchRate = newDispatchRate;
-                    }
-                    updateDispatchRate(dispatchRate);
-                }
+    
+    public static boolean isDispatchRateNeeded(BrokerService brokerService, Optional<Policies> policies,
+            String topicName, String subscriptionName) {
+        final ServiceConfiguration serviceConfig = brokerService.pulsar().getConfiguration();
+        policies = policies.isPresent() ? policies : getPolicies(brokerService, topicName);
+        return isDispatchRateNeeded(serviceConfig, policies, topicName, subscriptionName);
+    }
+
+    public static boolean isDispatchRateNeeded(final ServiceConfiguration serviceConfig,
+            final Optional<Policies> policies, final String topicName, final String subscriptionName) {
+        DispatchRate dispatchRate = getPoliciesDispatchRate(serviceConfig.getClusterName(), policies, topicName,
+                subscriptionName);
+        if (dispatchRate == null) {
+            if (subscriptionName == null) {
+                return serviceConfig.getDispatchThrottlingRatePerTopicInMsg() > 0
+                        || serviceConfig.getDispatchThrottlingRatePerTopicInByte() > 0;
+            } else {
+                return serviceConfig.getDispatchThrottlingRatePerSubscriptionInMsg() > 0
+                        || serviceConfig.getDispatchThrottlingRatePerSubscribeInByte() > 0;
             }
-        });
+        }
+        return true;
+    }
+    
+    public void onPoliciesUpdate(Policies data) {
+        String cluster = brokerService.pulsar().getConfiguration().getClusterName();
+
+        DispatchRate dispatchRate;
+        if (subscriptionName == null) {
+            dispatchRate = data.clusterDispatchRate.get(cluster);
+        } else {
+            dispatchRate = data.subscriptionDispatchRate.get(cluster);
+        }
+        // update dispatch-rate only if it's configured in policies else ignore
+        if (dispatchRate != null) {
+            int inMsg = (subscriptionName == null) ?
+                brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerTopicInMsg() :
+                brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerSubscriptionInMsg();
+            long inByte = (subscriptionName == null) ?
+                brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerTopicInByte() :
+                brokerService.pulsar().getConfiguration().getDispatchThrottlingRatePerSubscribeInByte();
+            final DispatchRate newDispatchRate = new DispatchRate(inMsg, inByte, 1);
+            // if policy-throttling rate is disabled and cluster-throttling is enabled then apply
+            // cluster-throttling rate
+            if (!isDispatchRateEnabled(dispatchRate) && isDispatchRateEnabled(newDispatchRate)) {
+                dispatchRate = newDispatchRate;
+            }
+            updateDispatchRate(dispatchRate);
+        }
     }
 
     /**
@@ -160,17 +176,27 @@ public class DispatchRateLimiter {
      *
      * @return
      */
-    public DispatchRate getPoliciesDispatchRate() {
-        final NamespaceName namespace = TopicName.get(this.topicName).getNamespaceObject();
+    public DispatchRate getPoliciesDispatchRate(BrokerService brokerService) {
         final String cluster = brokerService.pulsar().getConfiguration().getClusterName();
+        final Optional<Policies> policies = getPolicies(brokerService, topicName);
+        return getPoliciesDispatchRate(cluster, policies, topicName, subscriptionName);
+    }
+    
+    
+    public static Optional<Policies> getPolicies(BrokerService brokerService, String topicName) {
+        final NamespaceName namespace = TopicName.get(topicName).getNamespaceObject();
         final String path = path(POLICIES, namespace.toString());
         Optional<Policies> policies = Optional.empty();
         try {
             policies = brokerService.pulsar().getConfigurationCache().policiesCache().getAsync(path)
                     .get(cacheTimeOutInSec, SECONDS);
         } catch (Exception e) {
-            log.warn("Failed to get message-rate for {} subscription {}", this.topicName, this.subscriptionName, e);
+            log.warn("Failed to get message-rate for {} ", topicName, e);
         }
+        return policies;
+    }
+
+    public static DispatchRate getPoliciesDispatchRate(final String cluster, Optional<Policies> policies, final String topicName, final String subscriptionName) {
         // return policy-dispatch rate only if it's enabled in policies
         return policies.map(p -> {
             DispatchRate dispatchRate;
@@ -251,7 +277,7 @@ public class DispatchRateLimiter {
     }
 
 
-    private boolean isDispatchRateEnabled(DispatchRate dispatchRate) {
+    private static boolean isDispatchRateEnabled(DispatchRate dispatchRate) {
         return dispatchRate != null && (dispatchRate.dispatchThrottlingRateInMsg > 0
                 || dispatchRate.dispatchThrottlingRateInByte > 0);
     }

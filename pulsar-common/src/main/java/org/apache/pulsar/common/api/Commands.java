@@ -404,6 +404,21 @@ public class Commands {
         return res;
     }
 
+    public static ByteBuf newSeek(long consumerId, long requestId, long timestamp) {
+        CommandSeek.Builder seekBuilder = CommandSeek.newBuilder();
+        seekBuilder.setConsumerId(consumerId);
+        seekBuilder.setRequestId(requestId);
+
+        seekBuilder.setMessagePublishTime(timestamp);
+
+        CommandSeek seek = seekBuilder.build();
+        ByteBuf res = serializeWithSize(BaseCommand.newBuilder().setType(Type.SEEK).setSeek(seek));
+
+        seekBuilder.recycle();
+        seek.recycle();
+        return res;
+    }
+
     public static ByteBuf newCloseConsumer(long consumerId, long requestId) {
         CommandCloseConsumer.Builder closeConsumerBuilder = CommandCloseConsumer.newBuilder();
         closeConsumerBuilder.setConsumerId(consumerId);
@@ -1069,21 +1084,20 @@ public class Commands {
         int beginIndex = uncompressedPayload.readerIndex() + singleMetaSize;
         uncompressedPayload.writerIndex(beginIndex);
         ByteBufCodedInputStream stream = ByteBufCodedInputStream.get(uncompressedPayload);
-        PulsarApi.SingleMessageMetadata singleMessageMetadata = singleMessageMetadataBuilder.mergeFrom(stream, null)
-                .build();
+        singleMessageMetadataBuilder.mergeFrom(stream, null);
+        stream.recycle();
 
-        int singleMessagePayloadSize = singleMessageMetadata.getPayloadSize();
+        int singleMessagePayloadSize = singleMessageMetadataBuilder.getPayloadSize();
 
-        uncompressedPayload.markReaderIndex();
-        ByteBuf singleMessagePayload = uncompressedPayload.slice(uncompressedPayload.readerIndex(),
-                singleMessagePayloadSize);
-        singleMessagePayload.retain();
+        int readerIndex = uncompressedPayload.readerIndex();
+        ByteBuf singleMessagePayload = uncompressedPayload.retainedSlice(readerIndex, singleMessagePayloadSize);
         uncompressedPayload.writerIndex(writerIndex);
-        uncompressedPayload.resetReaderIndex();
+
         // reader now points to beginning of payload read; so move it past message payload just read
         if (index < batchSize) {
-            uncompressedPayload.readerIndex(uncompressedPayload.readerIndex() + singleMessagePayloadSize);
+            uncompressedPayload.readerIndex(readerIndex + singleMessagePayloadSize);
         }
+
         return singleMessagePayload;
     }
 
@@ -1116,7 +1130,6 @@ public class Commands {
         return (ByteBufPair) ByteBufPair.get(headers, metadataAndPayload);
     }
 
-    @VisibleForTesting
     public static int getCurrentProtocolVersion() {
         // Return the last ProtocolVersion enum value
         return ProtocolVersion.values()[ProtocolVersion.values().length - 1].getNumber();

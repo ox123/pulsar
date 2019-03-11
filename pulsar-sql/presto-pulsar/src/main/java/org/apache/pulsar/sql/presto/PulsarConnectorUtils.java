@@ -24,6 +24,9 @@ import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.common.naming.TopicName;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+
 public class PulsarConnectorUtils {
 
     public static Schema parseSchema(String schemaJson) {
@@ -31,12 +34,43 @@ public class PulsarConnectorUtils {
         return parser.parse(schemaJson);
     }
 
-    public static boolean isPartitionedTopic(TopicName topicName, PulsarAdmin pulsarAdmin) {
+    public static boolean isPartitionedTopic(TopicName topicName, PulsarAdmin pulsarAdmin) throws PulsarAdminException {
+        return pulsarAdmin.topics().getPartitionedTopicMetadata(topicName.toString()).partitions > 0;
+    }
+
+    /**
+     * Create an instance of <code>userClassName</code> using provided <code>classLoader</code>.
+     * This instance should implement the provided interface <code>xface</code>.
+     *
+     * @param userClassName user class name
+     * @param xface the interface that the reflected instance should implement
+     * @param classLoader class loader to load the class.
+     * @return the instance
+     */
+    public static <T> T createInstance(String userClassName,
+                                       Class<T> xface,
+                                       ClassLoader classLoader) {
+        Class<?> theCls;
         try {
-            return pulsarAdmin.topics().getPartitionedTopicMetadata(topicName.toString()).partitions > 0;
-        } catch (PulsarAdminException e) {
-            throw new RuntimeException("Failed to determine if topic " + topicName + " is partitioned: "
-                    + ExceptionUtils.getRootCause(e).getLocalizedMessage(), e);
+            theCls = Class.forName(userClassName, true, classLoader);
+        } catch (ClassNotFoundException cnfe) {
+            throw new RuntimeException("User class must be in class path", cnfe);
+        }
+        if (!xface.isAssignableFrom(theCls)) {
+            throw new RuntimeException(userClassName + " not " + xface.getName());
+        }
+        Class<T> tCls = (Class<T>) theCls.asSubclass(xface);
+        try {
+            Constructor<T> meth = tCls.getDeclaredConstructor();
+            return meth.newInstance();
+        } catch (InstantiationException ie) {
+            throw new RuntimeException("User class must be concrete", ie);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException("User class must have a no-arg constructor", e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException("User class must a public constructor", e);
+        } catch (InvocationTargetException e) {
+            throw new RuntimeException("User class constructor throws exception", e);
         }
     }
 }

@@ -60,7 +60,6 @@ import org.apache.pulsar.broker.service.Replicator;
 import org.apache.pulsar.broker.service.persistent.PersistentReplicator;
 import org.apache.pulsar.broker.service.persistent.PersistentTopic;
 import org.apache.pulsar.client.admin.PulsarAdminException.PreconditionFailedException;
-import org.apache.pulsar.client.api.MessageBuilder;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.RawMessage;
@@ -96,18 +95,18 @@ public class V1_ReplicatorTest extends V1_ReplicatorTestBase {
     protected String methodName;
 
     @BeforeMethod
-    public void beforeMethod(Method m) throws Exception {
+    public void beforeMethod(Method m) {
         methodName = m.getName();
     }
 
     @Override
-    @BeforeClass(timeOut = 30000)
+    @BeforeClass(timeOut = 60000)
     void setup() throws Exception {
         super.setup();
     }
 
     @Override
-    @AfterClass(timeOut = 30000)
+    @AfterClass(timeOut = 60000)
     void shutdown() throws Exception {
         super.shutdown();
     }
@@ -418,11 +417,11 @@ public class V1_ReplicatorTest extends V1_ReplicatorTestBase {
                     log.info("--- Starting Consumer --- " + url3);
 
                     // Produce a message that isn't replicated
-                    producer1.produce(1, MessageBuilder.create().disableReplication());
+                    producer1.produce(1, producer1.newMessage().disableReplication());
 
                     // Produce a message not replicated to r2
                     producer1.produce(1,
-                            MessageBuilder.create().setReplicationClusters(Lists.newArrayList("r1", "r3")));
+                            producer1.newMessage().replicationClusters(Lists.newArrayList("r1", "r3")));
 
                     // Produce a default replicated message
                     producer1.produce(1);

@@ -72,7 +72,7 @@ public class SLAMonitoringTest {
     void setup() throws Exception {
         log.info("---- Initializing SLAMonitoringTest -----");
         // Start local bookkeeper ensemble
-        bkEnsemble = new LocalBookkeeperEnsemble(3, ZOOKEEPER_PORT, PortManager.nextFreePort());
+        bkEnsemble = new LocalBookkeeperEnsemble(3, ZOOKEEPER_PORT, () -> PortManager.nextFreePort());
         bkEnsemble.start();
 
         // start brokers
@@ -217,8 +217,8 @@ public class SLAMonitoringTest {
         try {
             pulsarServices[crashIndex] = new PulsarService(configurations[crashIndex]);
             pulsarServices[crashIndex].start();
-            assertEquals(pulsarServices[crashIndex].getConfiguration().getBrokerServicePort(),
-                    brokerNativeBrokerPorts[crashIndex]);
+            assertEquals(pulsarServices[crashIndex].getConfiguration().getBrokerServicePort().get(),
+                    new Integer(brokerNativeBrokerPorts[crashIndex]));
         } catch (PulsarServerException e) {
             e.printStackTrace();
             fail("The broker should be able to start without exception");

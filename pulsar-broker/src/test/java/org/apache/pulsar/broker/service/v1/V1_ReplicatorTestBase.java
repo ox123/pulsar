@@ -38,11 +38,11 @@ import org.apache.pulsar.broker.service.BrokerService;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.client.api.MessageBuilder;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.common.policies.data.ClusterData;
 import org.apache.pulsar.common.policies.data.TenantInfo;
@@ -104,7 +104,7 @@ public class V1_ReplicatorTestBase {
 
         // Start region 1
         int zkPort1 = PortManager.nextFreePort();
-        bkEnsemble1 = new LocalBookkeeperEnsemble(3, zkPort1, PortManager.nextFreePort());
+        bkEnsemble1 = new LocalBookkeeperEnsemble(3, zkPort1, () -> PortManager.nextFreePort());
         bkEnsemble1.start();
 
         int webServicePort1 = PortManager.nextFreePort();
@@ -124,7 +124,6 @@ public class V1_ReplicatorTestBase {
                 inSec(getBrokerServicePurgeInactiveFrequency(), TimeUnit.SECONDS));
         config1.setBrokerServicePort(PortManager.nextFreePort());
         config1.setBrokerServicePortTls(PortManager.nextFreePort());
-        config1.setTlsEnabled(true);
         config1.setTlsCertificateFilePath(TLS_SERVER_CERT_FILE_PATH);
         config1.setTlsKeyFilePath(TLS_SERVER_KEY_FILE_PATH);
         config1.setTlsTrustCertsFilePath(TLS_SERVER_CERT_FILE_PATH);
@@ -142,7 +141,7 @@ public class V1_ReplicatorTestBase {
 
         // Start zk & bks
         int zkPort2 = PortManager.nextFreePort();
-        bkEnsemble2 = new LocalBookkeeperEnsemble(3, zkPort2, PortManager.nextFreePort());
+        bkEnsemble2 = new LocalBookkeeperEnsemble(3, zkPort2, () -> PortManager.nextFreePort());
         bkEnsemble2.start();
 
         int webServicePort2 = PortManager.nextFreePort();
@@ -158,7 +157,6 @@ public class V1_ReplicatorTestBase {
                 inSec(getBrokerServicePurgeInactiveFrequency(), TimeUnit.SECONDS));
         config2.setBrokerServicePort(PortManager.nextFreePort());
         config2.setBrokerServicePortTls(PortManager.nextFreePort());
-        config2.setTlsEnabled(true);
         config2.setTlsCertificateFilePath(TLS_SERVER_CERT_FILE_PATH);
         config2.setTlsKeyFilePath(TLS_SERVER_KEY_FILE_PATH);
         config2.setTlsTrustCertsFilePath(TLS_SERVER_CERT_FILE_PATH);
@@ -176,7 +174,7 @@ public class V1_ReplicatorTestBase {
 
         // Start zk & bks
         int zkPort3 = PortManager.nextFreePort();
-        bkEnsemble3 = new LocalBookkeeperEnsemble(3, zkPort3, PortManager.nextFreePort());
+        bkEnsemble3 = new LocalBookkeeperEnsemble(3, zkPort3, () -> PortManager.nextFreePort());
         bkEnsemble3.start();
 
         int webServicePort3 = PortManager.nextFreePort();
@@ -307,14 +305,18 @@ public class V1_ReplicatorTestBase {
 
         }
 
-        void produce(int messages, MessageBuilder<byte[]> messageBuilder) throws Exception {
+        void produce(int messages, TypedMessageBuilder<byte[]> messageBuilder) throws Exception {
             log.info("Start sending messages");
             for (int i = 0; i < messages; i++) {
                 final String m = new String("test-builder-" + i);
-                messageBuilder.setContent(m.getBytes());
-                producer.send(messageBuilder.build());
+                messageBuilder.value(m.getBytes());
+                messageBuilder.send();
                 log.info("Sent message {}", m);
             }
+        }
+
+        TypedMessageBuilder<byte[]> newMessage() {
+            return producer.newMessage();
         }
 
         void close() throws Exception {

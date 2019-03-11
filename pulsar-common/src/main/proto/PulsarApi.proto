@@ -65,6 +65,7 @@ enum CompressionType {
 	NONE   = 0;
 	LZ4    = 1;
 	ZLIB   = 2;
+	ZSTD   = 3;
 }
 
 message MessageMetadata {
@@ -138,6 +139,8 @@ enum ServerError {
 
     ProducerBusy         = 16; // Producer with same name is already connected
     InvalidTopicName = 17; // The topic name is not valid
+
+    IncompatibleSchema = 18; // Specified schema was incompatible with topic schema
 }
 
 enum AuthMethod {
@@ -394,6 +397,7 @@ message CommandSeek {
 	required uint64 request_id  = 2;
 
 	optional MessageIdData message_id = 3;
+	optional uint64 message_publish_time = 4;
 }
 
 // Message sent by broker to client when a topic

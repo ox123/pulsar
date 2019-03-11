@@ -19,7 +19,6 @@
 package org.apache.pulsar.functions.worker.scheduler;
 
 import org.apache.pulsar.functions.proto.Function.Assignment;
-import org.apache.pulsar.functions.proto.Function.FunctionDetails;
 import org.apache.pulsar.functions.proto.Function.Instance;
 
 import com.google.common.collect.Lists;
@@ -28,18 +27,16 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 public class RoundRobinScheduler implements IScheduler {
 
-    public static final String HEARTBEAT_TENANT = "pulsar-function";
-    public static final String HEARTBEAT_NAMESPACE = "heartbeat";
-    
     @Override
-    public List<Assignment> schedule(List<Instance> unassignedFunctionInstances, List<Assignment>
-            currentAssignments, List<String> workers) {
+    public List<Assignment> schedule(List<Instance> unassignedFunctionInstances,
+            List<Assignment> currentAssignments, Set<String> workers) {
 
         Map<String, List<Assignment>> workerIdToAssignment = new HashMap<>();
+        List<Assignment> newAssignments = Lists.newArrayList();
 
         for (String workerId : workers) {
             workerIdToAssignment.put(workerId, new LinkedList<>());
@@ -49,10 +46,8 @@ public class RoundRobinScheduler implements IScheduler {
             workerIdToAssignment.get(existingAssignment.getWorkerId()).add(existingAssignment);
         }
 
-        List<Assignment> newAssignments = Lists.newArrayList();
         for (Instance unassignedFunctionInstance : unassignedFunctionInstances) {
-            String heartBeatWorkerId = checkHeartBeatFunction(unassignedFunctionInstance);
-            String workerId = heartBeatWorkerId != null ? heartBeatWorkerId : findNextWorker(workerIdToAssignment);
+            String workerId = findNextWorker(workerIdToAssignment);
             Assignment newAssignment = Assignment.newBuilder().setInstance(unassignedFunctionInstance)
                     .setWorkerId(workerId).build();
             workerIdToAssignment.get(workerId).add(newAssignment);
@@ -62,25 +57,15 @@ public class RoundRobinScheduler implements IScheduler {
         return newAssignments;
     }
 
-    private static String checkHeartBeatFunction(Instance funInstance) {
-        if (funInstance.getFunctionMetaData() != null
-                && funInstance.getFunctionMetaData().getFunctionDetails() != null) {
-            FunctionDetails funDetails = funInstance.getFunctionMetaData().getFunctionDetails();
-            return HEARTBEAT_TENANT.equals(funDetails.getTenant())
-                    && HEARTBEAT_NAMESPACE.equals(funDetails.getNamespace()) ? funDetails.getName() : null;
-        }
-        return null;
-    }
-
     private String findNextWorker(Map<String, List<Assignment>> workerIdToAssignment) {
         String targetWorkerId = null;
         int least = Integer.MAX_VALUE;
         for (Map.Entry<String, List<Assignment>> entry : workerIdToAssignment.entrySet()) {
             String workerId = entry.getKey();
-            List<Assignment> workerAssigments = entry.getValue();
-            if (workerAssigments.size() < least) {
+            List<Assignment> workerAssignments = entry.getValue();
+            if (workerAssignments.size() < least) {
                 targetWorkerId = workerId;
-                least = workerAssigments.size();
+                least = workerAssignments.size();
             }
         }
         return targetWorkerId;

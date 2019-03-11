@@ -13,11 +13,13 @@ public final class PulsarApi {
     NONE(0, 0),
     LZ4(1, 1),
     ZLIB(2, 2),
+    ZSTD(3, 3),
     ;
     
     public static final int NONE_VALUE = 0;
     public static final int LZ4_VALUE = 1;
     public static final int ZLIB_VALUE = 2;
+    public static final int ZSTD_VALUE = 3;
     
     
     public final int getNumber() { return value; }
@@ -27,6 +29,7 @@ public final class PulsarApi {
         case 0: return NONE;
         case 1: return LZ4;
         case 2: return ZLIB;
+        case 3: return ZSTD;
         default: return null;
       }
     }
@@ -72,6 +75,7 @@ public final class PulsarApi {
     TopicTerminatedError(15, 15),
     ProducerBusy(16, 16),
     InvalidTopicName(17, 17),
+    IncompatibleSchema(18, 18),
     ;
     
     public static final int UnknownError_VALUE = 0;
@@ -92,6 +96,7 @@ public final class PulsarApi {
     public static final int TopicTerminatedError_VALUE = 15;
     public static final int ProducerBusy_VALUE = 16;
     public static final int InvalidTopicName_VALUE = 17;
+    public static final int IncompatibleSchema_VALUE = 18;
     
     
     public final int getNumber() { return value; }
@@ -116,6 +121,7 @@ public final class PulsarApi {
         case 15: return TopicTerminatedError;
         case 16: return ProducerBusy;
         case 17: return InvalidTopicName;
+        case 18: return IncompatibleSchema;
         default: return null;
       }
     }
@@ -16189,6 +16195,10 @@ public final class PulsarApi {
     // optional .pulsar.proto.MessageIdData message_id = 3;
     boolean hasMessageId();
     org.apache.pulsar.common.api.proto.PulsarApi.MessageIdData getMessageId();
+    
+    // optional uint64 message_publish_time = 4;
+    boolean hasMessagePublishTime();
+    long getMessagePublishTime();
   }
   public static final class CommandSeek extends
       org.apache.pulsar.shaded.com.google.protobuf.v241.GeneratedMessageLite
@@ -16255,10 +16265,21 @@ public final class PulsarApi {
       return messageId_;
     }
     
+    // optional uint64 message_publish_time = 4;
+    public static final int MESSAGE_PUBLISH_TIME_FIELD_NUMBER = 4;
+    private long messagePublishTime_;
+    public boolean hasMessagePublishTime() {
+      return ((bitField0_ & 0x00000008) == 0x00000008);
+    }
+    public long getMessagePublishTime() {
+      return messagePublishTime_;
+    }
+    
     private void initFields() {
       consumerId_ = 0L;
       requestId_ = 0L;
       messageId_ = org.apache.pulsar.common.api.proto.PulsarApi.MessageIdData.getDefaultInstance();
+      messagePublishTime_ = 0L;
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -16300,6 +16321,9 @@ public final class PulsarApi {
       if (((bitField0_ & 0x00000004) == 0x00000004)) {
         output.writeMessage(3, messageId_);
       }
+      if (((bitField0_ & 0x00000008) == 0x00000008)) {
+        output.writeUInt64(4, messagePublishTime_);
+      }
     }
     
     private int memoizedSerializedSize = -1;
@@ -16319,6 +16343,10 @@ public final class PulsarApi {
       if (((bitField0_ & 0x00000004) == 0x00000004)) {
         size += org.apache.pulsar.shaded.com.google.protobuf.v241.CodedOutputStream
           .computeMessageSize(3, messageId_);
+      }
+      if (((bitField0_ & 0x00000008) == 0x00000008)) {
+        size += org.apache.pulsar.shaded.com.google.protobuf.v241.CodedOutputStream
+          .computeUInt64Size(4, messagePublishTime_);
       }
       memoizedSerializedSize = size;
       return size;
@@ -16439,6 +16467,8 @@ public final class PulsarApi {
         bitField0_ = (bitField0_ & ~0x00000002);
         messageId_ = org.apache.pulsar.common.api.proto.PulsarApi.MessageIdData.getDefaultInstance();
         bitField0_ = (bitField0_ & ~0x00000004);
+        messagePublishTime_ = 0L;
+        bitField0_ = (bitField0_ & ~0x00000008);
         return this;
       }
       
@@ -16484,6 +16514,10 @@ public final class PulsarApi {
           to_bitField0_ |= 0x00000004;
         }
         result.messageId_ = messageId_;
+        if (((from_bitField0_ & 0x00000008) == 0x00000008)) {
+          to_bitField0_ |= 0x00000008;
+        }
+        result.messagePublishTime_ = messagePublishTime_;
         result.bitField0_ = to_bitField0_;
         return result;
       }
@@ -16498,6 +16532,9 @@ public final class PulsarApi {
         }
         if (other.hasMessageId()) {
           mergeMessageId(other.getMessageId());
+        }
+        if (other.hasMessagePublishTime()) {
+          setMessagePublishTime(other.getMessagePublishTime());
         }
         return this;
       }
@@ -16560,6 +16597,11 @@ public final class PulsarApi {
               input.readMessage(subBuilder, extensionRegistry);
               setMessageId(subBuilder.buildPartial());
               subBuilder.recycle();
+              break;
+            }
+            case 32: {
+              bitField0_ |= 0x00000008;
+              messagePublishTime_ = input.readUInt64();
               break;
             }
           }
@@ -16650,6 +16692,27 @@ public final class PulsarApi {
         messageId_ = org.apache.pulsar.common.api.proto.PulsarApi.MessageIdData.getDefaultInstance();
         
         bitField0_ = (bitField0_ & ~0x00000004);
+        return this;
+      }
+      
+      // optional uint64 message_publish_time = 4;
+      private long messagePublishTime_ ;
+      public boolean hasMessagePublishTime() {
+        return ((bitField0_ & 0x00000008) == 0x00000008);
+      }
+      public long getMessagePublishTime() {
+        return messagePublishTime_;
+      }
+      public Builder setMessagePublishTime(long value) {
+        bitField0_ |= 0x00000008;
+        messagePublishTime_ = value;
+        
+        return this;
+      }
+      public Builder clearMessagePublishTime() {
+        bitField0_ = (bitField0_ & ~0x00000008);
+        messagePublishTime_ = 0L;
+        
         return this;
       }
       

@@ -22,6 +22,7 @@ import org.apache.bookkeeper.mledger.ManagedLedgerException;
 import org.apache.bookkeeper.mledger.ManagedLedgerFactory;
 import org.apache.bookkeeper.mledger.impl.ManagedLedgerFactoryImpl;
 import org.apache.pulsar.shade.org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.pulsar.shade.org.apache.bookkeeper.stats.StatsProvider;
 
 public class PulsarConnectorCache {
 
@@ -29,8 +30,19 @@ public class PulsarConnectorCache {
 
     private final ManagedLedgerFactory managedLedgerFactory;
 
+    private final StatsProvider statsProvider;
+
     private PulsarConnectorCache(PulsarConnectorConfig pulsarConnectorConfig) throws Exception {
         this.managedLedgerFactory = initManagedLedgerFactory(pulsarConnectorConfig);
+        this.statsProvider = PulsarConnectorUtils.createInstance(pulsarConnectorConfig.getStatsProvider(),
+                StatsProvider.class, getClass().getClassLoader());
+
+        // start stats provider
+        ClientConfiguration clientConfiguration = new ClientConfiguration();
+
+        pulsarConnectorConfig.getStatsProviderConfigs().forEach((key, value) -> clientConfiguration.setProperty(key, value));
+
+        this.statsProvider.start(clientConfiguration);
     }
 
     public static PulsarConnectorCache getConnectorCache(PulsarConnectorConfig pulsarConnectorConfig) throws Exception {
@@ -47,6 +59,9 @@ public class PulsarConnectorCache {
                 .setZkServers(pulsarConnectorConfig.getZookeeperUri())
                 .setAllowShadedLedgerManagerFactoryClass(true)
                 .setShadedLedgerManagerFactoryClassPrefix("org.apache.pulsar.shade.")
+                .setClientTcpNoDelay(false)
+                .setUseV2WireProtocol(true)
+                .setStickyReadsEnabled(true)
                 .setReadEntryTimeout(60);
         return new ManagedLedgerFactoryImpl(bkClientConfiguration);
     }
@@ -55,10 +70,17 @@ public class PulsarConnectorCache {
         return managedLedgerFactory;
     }
 
+    public StatsProvider getStatsProvider() {
+        return statsProvider;
+    }
+
     public static void shutdown() throws ManagedLedgerException, InterruptedException {
-        if (instance != null) {
-            instance.managedLedgerFactory.shutdown();
-            instance = null;
+        synchronized (PulsarConnectorCache.class) {
+            if (instance != null) {
+                instance.managedLedgerFactory.shutdown();
+                instance.statsProvider.stop();
+                instance = null;
+            }
         }
     }
 }

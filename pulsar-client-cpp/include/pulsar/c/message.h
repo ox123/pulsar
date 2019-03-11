@@ -87,7 +87,7 @@ void pulsar_message_set_sequence_id(pulsar_message_t *message, int64_t sequenceI
  *
  * @param clusters where to send this message.
  */
-void pulsar_message_set_replication_clusters(pulsar_message_t *message, const char **clusters);
+void pulsar_message_set_replication_clusters(pulsar_message_t *message, const char **clusters, size_t size);
 
 /**
  * Do not replicate this message
@@ -166,6 +166,8 @@ uint64_t pulsar_message_get_publish_timestamp(pulsar_message_t *message);
  * Get the event timestamp associated with this message. It is set by the client producer.
  */
 uint64_t pulsar_message_get_event_timestamp(pulsar_message_t *message);
+
+const char *pulsar_message_get_topic_name(pulsar_message_t *message);
 
 #pragma GCC visibility pop
 

@@ -21,12 +21,14 @@ package org.apache.pulsar.io;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.mockito.Mockito.spy;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -46,20 +48,13 @@ import org.apache.pulsar.client.impl.auth.AuthenticationTls;
 import org.apache.pulsar.common.policies.data.ClusterData;
 import org.apache.pulsar.common.policies.data.TenantInfo;
 import org.apache.pulsar.functions.worker.WorkerConfig;
-import org.apache.pulsar.functions.worker.WorkerInfo;
 import org.apache.pulsar.functions.worker.WorkerService;
 import org.apache.pulsar.functions.worker.rest.WorkerServer;
 import org.apache.pulsar.zookeeper.LocalBookkeeperEnsemble;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Test;
-
-import com.google.common.collect.Sets;
-
-import jersey.repackaged.com.google.common.collect.Lists;
 
 /**
  * Test Pulsar sink on function
@@ -101,7 +96,7 @@ public class PulsarFunctionAdminTest {
         log.info("--- Setting up method {} ---", method.getName());
 
         // Start local bookkeeper ensemble
-        bkEnsemble = new LocalBookkeeperEnsemble(3, ZOOKEEPER_PORT, PortManager.nextFreePort());
+        bkEnsemble = new LocalBookkeeperEnsemble(3, ZOOKEEPER_PORT, () -> PortManager.nextFreePort());
         bkEnsemble.start();
 
         String brokerServiceUrl = "https://127.0.0.1:" + brokerWebServiceTlsPort;
@@ -122,11 +117,10 @@ public class PulsarFunctionAdminTest {
         providers.add(AuthenticationProviderTls.class.getName());
         config.setAuthenticationEnabled(true);
         config.setAuthenticationProviders(providers);
-        config.setTlsEnabled(true);
         config.setTlsCertificateFilePath(TLS_SERVER_CERT_FILE_PATH);
         config.setTlsKeyFilePath(TLS_SERVER_KEY_FILE_PATH);
         config.setTlsAllowInsecureConnection(true);
-    
+
 
         functionsWorkerService = createPulsarFunctionWorker(config);
         urlTls = new URL(brokerServiceUrl);
@@ -145,7 +139,7 @@ public class PulsarFunctionAdminTest {
                         .allowTlsInsecureConnection(true).authentication(authTls).build());
 
         brokerStatsClient = admin.brokerStats();
-        primaryHost = String.format("http://%s:%d", InetAddress.getLocalHost().getHostName(), brokerWebServicePort);
+        primaryHost = String.format("http://%s:%d", "localhost", brokerWebServicePort);
 
         // update cluster metadata
         ClusterData clusterData = new ClusterData(urlTls.toString());
@@ -160,11 +154,11 @@ public class PulsarFunctionAdminTest {
                     workerConfig.getClientAuthenticationParameters());
         }
         pulsarClient = clientBuilder.build();
-       
+
         TenantInfo propAdmin = new TenantInfo();
         propAdmin.setAllowedClusters(Sets.newHashSet(Lists.newArrayList("use")));
         admin.tenants().updateTenant(tenant, propAdmin);
-       
+
         Thread.sleep(100);
     }
 
@@ -185,8 +179,8 @@ public class PulsarFunctionAdminTest {
                 org.apache.pulsar.functions.worker.scheduler.RoundRobinScheduler.class.getName());
         workerConfig.setThreadContainerFactory(new WorkerConfig.ThreadContainerFactory().setThreadGroupName("use"));
         // worker talks to local broker
-        workerConfig.setPulsarServiceUrl("pulsar://127.0.0.1:" + config.getBrokerServicePortTls());
-        workerConfig.setPulsarWebServiceUrl("https://127.0.0.1:" + config.getWebServicePortTls());
+        workerConfig.setPulsarServiceUrl("pulsar://127.0.0.1:" + config.getBrokerServicePortTls().get());
+        workerConfig.setPulsarWebServiceUrl("https://127.0.0.1:" + config.getWebServicePortTls().get());
         workerConfig.setFailureCheckFreqMs(100);
         workerConfig.setNumFunctionPackageReplicas(1);
         workerConfig.setClusterCoordinationTopicName("coordinate");
