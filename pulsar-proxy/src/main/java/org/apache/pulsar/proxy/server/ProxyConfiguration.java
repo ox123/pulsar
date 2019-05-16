@@ -38,6 +38,7 @@ import org.apache.pulsar.common.configuration.FieldContext;
 import org.apache.pulsar.common.configuration.PropertiesContext;
 import org.apache.pulsar.common.configuration.PropertyContext;
 import org.apache.pulsar.common.configuration.PulsarConfiguration;
+import org.apache.pulsar.common.sasl.SaslConstants;
 
 @Getter
 @Setter
@@ -62,6 +63,8 @@ public class ProxyConfiguration implements PulsarConfiguration {
     private static final String CATEGORY_TOKEN_AUTH = "Token Authentication Provider";
     @Category
     private static final String CATEGORY_HTTP = "HTTP";
+    @Category
+    private static final String CATEGORY_SASL_AUTH = "SASL Authentication Provider";
 
     @FieldContext(
         category = CATEGORY_BROKER_DISCOVERY,
@@ -144,6 +147,15 @@ public class ProxyConfiguration implements PulsarConfiguration {
     private Integer webServicePortTls;
 
     @FieldContext(
+            category = CATEGORY_SERVER,
+            doc = "Proxy log level, default is 0."
+                    + " 0: Do not log any tcp channel info"
+                    + " 1: Parse and log any tcp channel info and command info without message body"
+                    + " 2: Parse and log channel info, command info and message body"
+    )
+    private Integer proxyLogLevel = 0;
+
+    @FieldContext(
         category = CATEGORY_SERVER,
         doc = "Path for the file used to determine the rotation status for the proxy instance"
             + " when responding to service discovery health checks"
@@ -185,6 +197,27 @@ public class ProxyConfiguration implements PulsarConfiguration {
             + "to take effect"
     )
     private boolean forwardAuthorizationCredentials = false;
+
+
+    @FieldContext(
+        category = CATEGORY_SASL_AUTH,
+        doc = "This is a regexp, which limits the range of possible ids which can connect to the Broker using SASL.\n"
+            + " Default value is: \".*pulsar.*\", so only clients whose id contains 'pulsar' are allowed to connect."
+    )
+    private String saslJaasClientAllowedIds = SaslConstants.JAAS_CLIENT_ALLOWED_IDS_DEFAULT;
+
+    @FieldContext(
+        category = CATEGORY_SASL_AUTH,
+        doc = "Service Principal, for login context name. Default value is \"PulsarProxy\"."
+    )
+    private String saslJaasServerSectionName = SaslConstants.JAAS_DEFAULT_PROXY_SECTION_NAME;
+
+    @FieldContext(
+        category = CATEGORY_SASL_AUTH,
+        doc = "kerberos kinit command."
+    )
+    private String kinitCommand = "/usr/bin/kinit";
+
 
     @FieldContext(
         category = CATEGORY_RATE_LIMITING,
@@ -339,6 +372,13 @@ public class ProxyConfiguration implements PulsarConfiguration {
 
     public Optional<Integer> getServicePort() {
         return Optional.ofNullable(servicePort);
+    }
+
+    public Optional<Integer> getproxyLogLevel() {
+        return Optional.ofNullable(proxyLogLevel);
+    }
+    public void setProxyLogLevel(int proxyLogLevel) {
+        this.proxyLogLevel = proxyLogLevel;
     }
 
     public Optional<Integer> getServicePortTls() {

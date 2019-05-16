@@ -61,6 +61,7 @@ import org.apache.pulsar.broker.service.BrokerServiceException.ServiceUnitNotRea
 import org.apache.pulsar.broker.service.schema.IncompatibleSchemaException;
 import org.apache.pulsar.broker.service.schema.SchemaRegistryService;
 import org.apache.pulsar.broker.web.RestException;
+import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.impl.BatchMessageIdImpl;
 import org.apache.pulsar.client.impl.ClientCnx;
@@ -100,10 +101,8 @@ import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.common.policies.data.BacklogQuota;
 import org.apache.pulsar.common.policies.data.ConsumerStats;
-import org.apache.pulsar.common.sasl.SaslConstants;
 import org.apache.pulsar.common.schema.SchemaData;
 import org.apache.pulsar.common.schema.SchemaInfoUtil;
-import org.apache.pulsar.common.schema.SchemaType;
 import org.apache.pulsar.common.schema.SchemaVersion;
 import org.apache.pulsar.common.util.FutureUtil;
 import org.apache.pulsar.common.util.collections.ConcurrentLongHashMap;
@@ -137,6 +136,7 @@ public class ServerCnx extends PulsarHandler {
     private boolean authenticateOriginalAuthData;
     private final boolean schemaValidationEnforced;
     private String authMethod = "none";
+    private final int maxMessageSize;
 
     enum State {
         Start, Connected, Failed, Connecting
@@ -157,6 +157,7 @@ public class ServerCnx extends PulsarHandler {
         this.proxyRoles = service.pulsar().getConfiguration().getProxyRoles();
         this.authenticateOriginalAuthData = service.pulsar().getConfiguration().isAuthenticateOriginalAuthData();
         this.schemaValidationEnforced = pulsar.getConfiguration().isSchemaValidationEnforced();
+        this.maxMessageSize = pulsar.getConfiguration().getMaxMessageSize();
     }
 
     @Override
@@ -226,11 +227,8 @@ public class ServerCnx extends PulsarHandler {
      * - originalPrincipal is not blank
      * - originalPrincipal is not a proxy principal
      */
-    //TODO: for sasl proxy.
-    // github issue #3655 {@link: https://github.com/apache/pulsar/issues/3655}
     private boolean invalidOriginalPrincipal(String originalPrincipal) {
         return (service.isAuthenticationEnabled() && service.isAuthorizationEnabled()
-            && !isSaslAuthenticationMethod()
             && proxyRoles.contains(authRole) && (StringUtils.isBlank(originalPrincipal) || proxyRoles.contains(originalPrincipal)));
     }
 
@@ -459,7 +457,7 @@ public class ServerCnx extends PulsarHandler {
 
     // complete the connect and sent newConnected command
     private void completeConnect(int clientProtoVersion, String clientVersion) {
-        ctx.writeAndFlush(Commands.newConnected(clientProtoVersion));
+        ctx.writeAndFlush(Commands.newConnected(clientProtoVersion, maxMessageSize));
         state = State.Connected;
         remoteEndpointProtocolVersion = clientProtoVersion;
         if (isNotBlank(clientVersion) && !clientVersion.contains(" ") /* ignore default version: pulsar client */) {
@@ -653,8 +651,8 @@ public class ServerCnx extends PulsarHandler {
                         if (existingConsumerFuture != null) {
                             if (existingConsumerFuture.isDone() && !existingConsumerFuture.isCompletedExceptionally()) {
                                 Consumer consumer = existingConsumerFuture.getNow(null);
-                                log.info("[{}] Consumer with the same id is already created: {}", remoteAddress,
-                                        consumer);
+                                log.info("[{}] Consumer with the same id {} is already created: {}", remoteAddress,
+                                        consumerId, consumer);
                                 ctx.writeAndFlush(Commands.newSuccess(requestId));
                                 return null;
                             } else {
@@ -663,10 +661,15 @@ public class ServerCnx extends PulsarHandler {
                                 // client timeout is lower the broker timeouts. We need to wait until the previous
                                 // consumer
                                 // creation request either complete or fails.
-                                log.warn("[{}][{}][{}] Consumer is already present on the connection", remoteAddress,
-                                        topicName, subscriptionName);
-                                ServerError error = !existingConsumerFuture.isDone() ? ServerError.ServiceNotReady
-                                        : getErrorCode(existingConsumerFuture);
+                                log.warn("[{}][{}][{}] Consumer with id {} is already present on the connection", remoteAddress,
+                                        topicName, subscriptionName, consumerId);
+                                ServerError error = null;
+                                if(!existingConsumerFuture.isDone()) {
+                                    error = ServerError.ServiceNotReady;
+                                }else {
+                                    error = getErrorCode(existingConsumerFuture);
+                                    consumers.remove(consumerId, consumerFuture);
+                                }
                                 ctx.writeAndFlush(Commands.newError(requestId, error,
                                         "Consumer is already present on the connection"));
                                 return null;
@@ -841,8 +844,8 @@ public class ServerCnx extends PulsarHandler {
                         if (existingProducerFuture != null) {
                             if (existingProducerFuture.isDone() && !existingProducerFuture.isCompletedExceptionally()) {
                                 Producer producer = existingProducerFuture.getNow(null);
-                                log.info("[{}] Producer with the same id is already created: {}", remoteAddress,
-                                        producer);
+                                log.info("[{}] Producer with the same id {} is already created: {}", remoteAddress,
+                                        producerId, producer);
                                 ctx.writeAndFlush(Commands.newProducerSuccess(requestId, producer.getProducerName(),
                                     producer.getSchemaVersion()));
                                 return null;
@@ -854,10 +857,15 @@ public class ServerCnx extends PulsarHandler {
                                 // until the previous producer creation
                                 // request
                                 // either complete or fails.
-                                ServerError error = !existingProducerFuture.isDone() ? ServerError.ServiceNotReady
-                                        : getErrorCode(existingProducerFuture);
-                                log.warn("[{}][{}] Producer is already present on the connection", remoteAddress,
-                                        topicName);
+                                ServerError error = null;
+                                if(!existingProducerFuture.isDone()) {
+                                    error = ServerError.ServiceNotReady;
+                                }else {
+                                    error = getErrorCode(existingProducerFuture);
+                                    producers.remove(producerId, producerFuture);
+                                }
+                                log.warn("[{}][{}] Producer with id {} is already present on the connection", remoteAddress,
+                                        producerId, topicName);
                                 ctx.writeAndFlush(Commands.newError(requestId, error,
                                         "Producer is already present on the connection"));
                                 return null;
@@ -892,6 +900,7 @@ public class ServerCnx extends PulsarHandler {
                                 String msg = String.format("Encryption is required in %s", topicName);
                                 log.warn("[{}] {}", remoteAddress, msg);
                                 ctx.writeAndFlush(Commands.newError(requestId, ServerError.MetadataError, msg));
+                                producers.remove(producerId, producerFuture);
                                 return;
                             }
 
@@ -902,8 +911,10 @@ public class ServerCnx extends PulsarHandler {
                                 schemaVersionFuture = topic.addSchema(schema);
                             } else {
                                 schemaVersionFuture = topic.hasSchema().thenCompose((hasSchema) -> {
+                                        log.info("[{}]-{} {} configured with schema {}", remoteAddress, producerId,
+                                                topicName, hasSchema);
                                         CompletableFuture<SchemaVersion> result = new CompletableFuture<>();
-                                        if (hasSchema && schemaValidationEnforced) {
+                                        if (hasSchema && (schemaValidationEnforced || topic.getSchemaValidationEnforced())) {
                                             result.completeExceptionally(new IncompatibleSchemaException(
                                                 "Producers cannot connect without a schema to topics with a schema"));
                                         } else {
@@ -1483,10 +1494,6 @@ public class ServerCnx extends PulsarHandler {
 
             return null;
         }
-    }
-
-    private boolean isSaslAuthenticationMethod(){
-        return authMethod.equalsIgnoreCase(SaslConstants.AUTH_METHOD_NAME);
     }
 
     private static final Logger log = LoggerFactory.getLogger(ServerCnx.class);
