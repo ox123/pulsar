@@ -42,7 +42,7 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.schema.KeyValueSchema;
-import org.apache.pulsar.common.api.Commands;
+import org.apache.pulsar.common.protocol.Commands;
 import org.apache.pulsar.common.api.EncryptionContext;
 import org.apache.pulsar.common.api.proto.PulsarApi;
 import org.apache.pulsar.common.api.proto.PulsarApi.KeyValue;
@@ -189,11 +189,13 @@ public class MessageImpl<T> implements Message<T> {
         msgMetadataBuilder.setReplicatedFrom(cluster);
     }
 
+    @Override
     public boolean isReplicated() {
         checkNotNull(msgMetadataBuilder);
         return msgMetadataBuilder.hasReplicatedFrom();
     }
 
+    @Override
     public String getReplicatedFrom() {
         checkNotNull(msgMetadataBuilder);
         return msgMetadataBuilder.getReplicatedFrom();
@@ -242,18 +244,42 @@ public class MessageImpl<T> implements Message<T> {
 
     @Override
     public T getValue() {
-        // check if the schema passed in from client supports schema versioning or not
-        // this is an optimization to only get schema version when necessary
-        byte [] schemaVersion = getSchemaVersion();
-        if (schema.supportSchemaVersioning() && schemaVersion != null) {
-            return schema.decode(getData(), schemaVersion);
-        } else if (schema.getSchemaInfo() != null && SchemaType.KEY_VALUE == schema.getSchemaInfo().getType()) {
-            KeyValueSchema kvSchema = (KeyValueSchema) schema;
-            if (kvSchema.getKeyValueEncodingType() == KeyValueEncodingType.SEPARATED) {
-                return schema.decode(getKeyBytes(), getData());
+        if (SchemaType.KEY_VALUE == schema.getSchemaInfo().getType()) {
+            if (schema.supportSchemaVersioning()) {
+                return getKeyValueBySchemaVersion();
+            } else {
+                return getKeyValue();
+            }
+        } else {
+            // check if the schema passed in from client supports schema versioning or not
+            // this is an optimization to only get schema version when necessary
+            if (schema.supportSchemaVersioning()) {
+                byte[] schemaVersion = getSchemaVersion();
+                if (null == schemaVersion) {
+                    return schema.decode(getData());
+                } else {
+                    return schema.decode(getData(), schemaVersion);
+                }
             } else {
                 return schema.decode(getData());
             }
+        }
+    }
+
+    private T getKeyValueBySchemaVersion() {
+        KeyValueSchema kvSchema = (KeyValueSchema) schema;
+        byte[] schemaVersion = getSchemaVersion();
+        if (kvSchema.getKeyValueEncodingType() == KeyValueEncodingType.SEPARATED) {
+            return (T) kvSchema.decode(getKeyBytes(), getData(), schemaVersion);
+        } else {
+            return schema.decode(getData(), schemaVersion);
+        }
+    }
+
+    private T getKeyValue() {
+        KeyValueSchema kvSchema = (KeyValueSchema) schema;
+        if (kvSchema.getKeyValueEncodingType() == KeyValueEncodingType.SEPARATED) {
+            return (T) kvSchema.decode(getKeyBytes(), getData(), null);
         } else {
             return schema.decode(getData());
         }
@@ -306,7 +332,7 @@ public class MessageImpl<T> implements Message<T> {
 
     @Override
     public String getProperty(String name) {
-        return properties.get(name);
+        return this.getProperties().get(name);
     }
 
     public MessageMetadata.Builder getMessageBuilder() {

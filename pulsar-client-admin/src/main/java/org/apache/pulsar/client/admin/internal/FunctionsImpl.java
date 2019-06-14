@@ -69,8 +69,8 @@ public class FunctionsImpl extends ComponentResource implements Functions {
     private final WebTarget functions;
     private final AsyncHttpClient asyncHttpClient;
 
-    public FunctionsImpl(WebTarget web, Authentication auth, AsyncHttpClient asyncHttpClient) {
-        super(auth);
+    public FunctionsImpl(WebTarget web, Authentication auth, AsyncHttpClient asyncHttpClient, long readTimeoutMs) {
+        super(auth, readTimeoutMs);
         this.functions = web.path("/admin/v3/functions");
         this.asyncHttpClient = asyncHttpClient;
     }
@@ -463,6 +463,7 @@ public class FunctionsImpl extends ComponentResource implements Functions {
         }
     }
 
+    @Override
     public FunctionState getFunctionState(String tenant, String namespace, String function, String key)
         throws PulsarAdminException {
         try {
@@ -471,8 +472,23 @@ public class FunctionsImpl extends ComponentResource implements Functions {
             if (!response.getStatusInfo().equals(Response.Status.OK)) {
                 throw getApiException(response);
             }
-            String value = response.readEntity(String.class);
-            return new Gson().fromJson(value, new TypeToken<FunctionState>() {}.getType());
+            return response.readEntity(FunctionState.class);
+        } catch (Exception e) {
+            throw getApiException(e);
+        }
+    }
+
+    @Override
+    public void putFunctionState(String tenant, String namespace, String function, FunctionState state)
+            throws PulsarAdminException {
+        try {
+             RequestBuilder builder = post(functions.path(tenant).path(namespace).path(function).path("state").path(state.getKey()).getUri().toASCIIString());
+             builder.addBodyPart(new StringPart("state", ObjectMapperFactory.getThreadLocal().writeValueAsString(state), MediaType.APPLICATION_JSON));
+             org.asynchttpclient.Response response = asyncHttpClient.executeRequest(addAuthHeaders(functions, builder).build()).get();
+
+             if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                 throw getApiException(Response.status(response.getStatusCode()).entity(response.getResponseBody()).build());
+             }
         } catch (Exception e) {
             throw getApiException(e);
         }

@@ -29,6 +29,7 @@ import org.apache.pulsar.client.admin.PulsarAdminException.NotFoundException;
 import org.apache.pulsar.client.admin.PulsarAdminException.PreconditionFailedException;
 import org.apache.pulsar.common.policies.data.AuthAction;
 import org.apache.pulsar.common.policies.data.BacklogQuota;
+import org.apache.pulsar.common.policies.data.BookieAffinityGroupData;
 import org.apache.pulsar.common.policies.data.BundlesData;
 import org.apache.pulsar.common.policies.data.DispatchRate;
 import org.apache.pulsar.common.policies.data.PersistencePolicies;
@@ -384,7 +385,7 @@ public interface Namespaces {
      * @throws PulsarAdminException
      */
     void grantPermissionOnSubscription(String namespace, String subscription, Set<String> roles) throws PulsarAdminException;
-    
+
     /**
      * Revoke permissions on a subscription's admin-api access.
      * @param namespace
@@ -393,7 +394,7 @@ public interface Namespaces {
      * @throws PulsarAdminException
      */
     void revokePermissionOnSubscription(String namespace, String subscription, String role) throws PulsarAdminException;
-    
+
     /**
      * Get the replication clusters for a namespace.
      * <p>
@@ -762,6 +763,36 @@ public interface Namespaces {
     PersistencePolicies getPersistence(String namespace) throws PulsarAdminException;
 
     /**
+     * Set bookie affinity group for a namespace to isolate namespace write to bookies that are part of given affinity
+     * group.
+     * 
+     * @param namespace
+     *            namespace name
+     * @param bookieAffinityGroup
+     *            bookie affinity group
+     * @throws PulsarAdminException
+     */
+    void setBookieAffinityGroup(String namespace, BookieAffinityGroupData bookieAffinityGroup)
+            throws PulsarAdminException;
+    
+    /**
+     * Delete bookie affinity group configured for a namespace.
+     * 
+     * @param namespace
+     * @throws PulsarAdminException
+     */
+    void deleteBookieAffinityGroup(String namespace) throws PulsarAdminException;
+
+    /**
+     * Get bookie affinity group configured for a namespace.
+     * 
+     * @param namespace
+     * @return
+     * @throws PulsarAdminException
+     */
+    BookieAffinityGroupData getBookieAffinityGroup(String namespace) throws PulsarAdminException;
+
+    /**
      * Set the retention configuration for all the topics on a namespace.
      * <p/>
      * Set the retention configuration on a namespace. This operation requires Pulsar super-user access.
@@ -932,6 +963,26 @@ public interface Namespaces {
      */
     DispatchRate getSubscriptionDispatchRate(String namespace) throws PulsarAdminException;
 
+    /**
+     * Set replicator-message-dispatch-rate (Replicators under this namespace can dispatch this many messages per second)
+     *
+     * @param namespace
+     * @param dispatchRate
+     *            number of messages per second
+     * @throws PulsarAdminException
+     *             Unexpected error
+     */
+    void setReplicatorDispatchRate(String namespace, DispatchRate dispatchRate) throws PulsarAdminException;
+
+    /** Get replicator-message-dispatch-rate (Replicators under this namespace can dispatch this many messages per second)
+     *
+     * @param namespace
+     * @returns DispatchRate
+     *            number of messages per second
+     * @throws PulsarAdminException
+     *             Unexpected error
+     */
+    DispatchRate getReplicatorDispatchRate(String namespace) throws PulsarAdminException;
 
     /**
      * Clear backlog for all topics on a namespace
