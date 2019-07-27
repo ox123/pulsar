@@ -17,37 +17,6 @@
 # under the License.
 #
 
-Configuration:
-  name: pulsar-functions-kubernetes-instance
-  monitorInterval: 30
-
-  Properties:
-    Property:
-      - name: "pulsar.log.level"
-        value: "info"
-      - name: "bk.log.level"
-        value: "info"
-
-  Appenders:
-
-    # Console
-    Console:
-      name: Console
-      target: SYSTEM_OUT
-      PatternLayout:
-        Pattern: "%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"
-
-  Loggers:
-
-    Logger:
-      name: org.apache.pulsar.functions.runtime.shaded.org.apache.bookkeeper
-      level: "${sys:bk.log.level}"
-      additivity: false
-      AppenderRef:
-        - ref: Console
-
-    Root:
-      level: info
-      AppenderRef:
-        - ref: Console
-          level: "${sys:pulsar.log.level}"
+name: filesystem
+description: fileSystem based offloader implementation
+offloaderFactoryClass: org.apache.bookkeeper.mledger.offload.filesystem.FileSystemLedgerOffloaderFactory

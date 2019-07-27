@@ -18,8 +18,7 @@
  */
 package org.apache.pulsar.functions.worker;
 
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -39,8 +38,9 @@ import org.apache.pulsar.functions.runtime.RuntimeSpawner;
 import org.apache.pulsar.functions.runtime.ThreadRuntimeFactory;
 import org.testng.annotations.Test;
 import static org.apache.pulsar.common.functions.Utils.FILE;
-import static org.testng.Assert.*;
-import static org.testng.AssertJUnit.assertFalse;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
+import static org.testng.AssertJUnit.fail;
 
 /**
  * Unit test of {@link FunctionActioner}.
@@ -85,7 +85,7 @@ public class FunctionActionerTest {
         // actioner should try to download file from bk-dlogNamespace and fails with exception
         try {
             actioner.startFunction(functionRuntimeInfo);
-            assertFalse(true);
+            fail();
         } catch (IllegalStateException ex) {
             assertEquals(ex.getMessage(), "StartupException");
         }
@@ -145,7 +145,7 @@ public class FunctionActionerTest {
 
         try {
             actioner.startFunction(functionRuntimeInfo);
-            assertFalse(true);
+            fail();
         } catch (IllegalStateException ex) {
             assertEquals(ex.getMessage(), "StartupException");
         }
@@ -187,7 +187,7 @@ public class FunctionActionerTest {
 
         RuntimeSpawner runtimeSpawner = spy(actioner.getRuntimeSpawner(instance, "foo"));
 
-        assertTrue(runtimeSpawner.getInstanceConfig().getFunctionAuthenticationSpec() == null);
+        assertNull(runtimeSpawner.getInstanceConfig().getFunctionAuthenticationSpec());
 
         FunctionRuntimeInfo functionRuntimeInfo = mock(FunctionRuntimeInfo.class);
 

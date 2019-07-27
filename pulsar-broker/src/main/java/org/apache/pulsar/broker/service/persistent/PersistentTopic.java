@@ -18,23 +18,23 @@
  */
 package org.apache.pulsar.broker.service.persistent;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static org.apache.commons.lang3.StringUtils.isBlank;
-import static org.apache.pulsar.broker.cache.ConfigurationCacheService.POLICIES;
-
+import com.carrotsearch.hppc.ObjectObjectHashMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import io.netty.buffer.ByteBuf;
+import io.netty.util.concurrent.FastThreadLocal;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
-
 import org.apache.bookkeeper.mledger.AsyncCallbacks;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.AddEntryCallback;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.CloseCallback;
@@ -98,11 +98,12 @@ import org.apache.pulsar.common.policies.data.ConsumerStats;
 import org.apache.pulsar.common.policies.data.PersistentTopicInternalStats;
 import org.apache.pulsar.common.policies.data.PersistentTopicInternalStats.CursorStats;
 import org.apache.pulsar.common.policies.data.PersistentTopicInternalStats.LedgerInfo;
-import org.apache.pulsar.common.policies.data.TopicStats;
 import org.apache.pulsar.common.policies.data.Policies;
 import org.apache.pulsar.common.policies.data.PublisherStats;
 import org.apache.pulsar.common.policies.data.ReplicatorStats;
+import org.apache.pulsar.common.policies.data.RetentionPolicies;
 import org.apache.pulsar.common.policies.data.SubscriptionStats;
+import org.apache.pulsar.common.policies.data.TopicStats;
 import org.apache.pulsar.common.protocol.schema.SchemaData;
 import org.apache.pulsar.common.util.Codec;
 import org.apache.pulsar.common.util.DateFormatter;
@@ -116,14 +117,10 @@ import org.apache.pulsar.utils.StatsOutputStream;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.carrotsearch.hppc.ObjectObjectHashMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.util.concurrent.FastThreadLocal;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.apache.pulsar.broker.cache.ConfigurationCacheService.POLICIES;
 
 public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCallback {
 
@@ -890,8 +887,11 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
         }).exceptionally(th -> {
             log.error("[{}] Policies update failed {}, scheduled retry in {} seconds", topic, th.getMessage(),
                     POLICY_UPDATE_FAILURE_RETRY_TIME_SECONDS, th);
-            brokerService.executor().schedule(this::checkReplicationAndRetryOnFailure,
-                    POLICY_UPDATE_FAILURE_RETRY_TIME_SECONDS, TimeUnit.SECONDS);
+            if (!(th.getCause() instanceof TopicFencedException)) {
+                // retriable exception
+                brokerService.executor().schedule(this::checkReplicationAndRetryOnFailure,
+                        POLICY_UPDATE_FAILURE_RETRY_TIME_SECONDS, TimeUnit.SECONDS);
+            }
             result.completeExceptionally(th);
             return null;
         });
@@ -1274,14 +1274,11 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
             // Start subscription name & consumers
             try {
                 topicStatsStream.startObject(subscriptionName);
-                Object[] consumers = subscription.getConsumers().array();
-                nsStats.consumerCount += consumers.length;
-                bundleStats.consumerCount += consumers.length;
-
                 topicStatsStream.startList("consumers");
 
-                for (Object consumerObj : consumers) {
-                    Consumer consumer = (Consumer) consumerObj;
+                for (Consumer consumer : subscription.getConsumers()) {
+                    ++nsStats.consumerCount;
+                    ++bundleStats.consumerCount;
                     consumer.updateRates();
 
                     ConsumerStats consumerStats = consumer.getStats();
@@ -1561,13 +1558,16 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
             Optional<Policies> policies = brokerService.pulsar().getConfigurationCache().policiesCache()
                     .get(AdminResource.path(POLICIES, name.getNamespace()));
             // If no policies, the default is to have no retention and delete the inactive topic
-            return policies.map(p -> p.retention_policies).map(rp -> {
-                long retentionTime = TimeUnit.MINUTES.toNanos(rp.getRetentionTimeInMinutes());
+            RetentionPolicies retentionPolicies = policies.map(p -> p.retention_policies).orElseGet(
+                    () -> new RetentionPolicies(
+                            brokerService.pulsar().getConfiguration().getDefaultRetentionTimeInMinutes(),
+                            brokerService.pulsar().getConfiguration().getDefaultRetentionSizeInMB())
+            );
+            long retentionTime = TimeUnit.MINUTES.toNanos(retentionPolicies.getRetentionTimeInMinutes());
 
-                // Negative retention time means the topic should be retained indefinitely,
-                // because its own data has to be retained
-                return retentionTime < 0 || (System.nanoTime() - lastActive) < retentionTime;
-            }).orElse(false);
+            // Negative retention time means the topic should be retained indefinitely,
+            // because its own data has to be retained
+            return retentionTime < 0 || (System.nanoTime() - lastActive) < retentionTime;
         } catch (Exception e) {
             if (log.isDebugEnabled()) {
                 log.debug("[{}] Error getting policies", topic);

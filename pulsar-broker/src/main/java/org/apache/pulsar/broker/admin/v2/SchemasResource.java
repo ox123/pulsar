@@ -263,6 +263,7 @@ public class SchemasResource extends AdminResource {
                 .timestamp(clock.millis())
                 .type(SchemaType.valueOf(payload.getType()))
                 .user(defaultIfEmpty(clientAppId(), ""))
+                .props(payload.getProperties())
                 .build(),
             SchemaCompatibilityStrategy.FULL
         ).thenAccept(version ->
@@ -291,7 +292,12 @@ public class SchemasResource extends AdminResource {
     }
 
     private String buildSchemaId(String tenant, String namespace, String topic) {
-        return TopicName.get("persistent", tenant, namespace, topic).getSchemaName();
+        TopicName topicName = TopicName.get("persistent", tenant, namespace, topic);
+        if (topicName.isPartitioned()) {
+            return TopicName.get(topicName.getPartitionedTopicName()).getSchemaName();
+        } else {
+            return topicName.getSchemaName();
+        }
     }
 
     private void validateDestinationAndAdminOperation(String tenant, String namespace, String topic,

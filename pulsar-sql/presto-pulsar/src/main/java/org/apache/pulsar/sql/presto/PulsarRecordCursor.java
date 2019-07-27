@@ -47,7 +47,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.avro.Schema;
 import org.apache.bookkeeper.mledger.AsyncCallbacks;
 import org.apache.bookkeeper.mledger.Entry;
 import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
@@ -61,7 +60,6 @@ import org.apache.pulsar.common.api.raw.MessageParser;
 import org.apache.pulsar.common.api.raw.RawMessage;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
-import org.apache.pulsar.common.schema.SchemaType;
 import org.jctools.queues.MessagePassingQueue;
 import org.jctools.queues.SpscArrayQueue;
 
@@ -140,9 +138,10 @@ public class PulsarRecordCursor implements RecordCursor {
         this.readOffloaded = pulsarConnectorConfig.getManagedLedgerOffloadDriver() != null;
         this.pulsarConnectorConfig = pulsarConnectorConfig;
 
-        Schema schema = PulsarConnectorUtils.parseSchema(pulsarSplit.getSchema());
-
-        this.schemaHandler = getSchemaHandler(schema, pulsarSplit.getSchemaType(), columnHandles);
+        this.schemaHandler = PulsarSchemaHandlers.newPulsarSchemaHandler(
+                pulsarSplit.getSchemaInfo(),
+                columnHandles
+        );
 
         log.info("Initializing split with parameters: %s", pulsarSplit);
 
@@ -154,22 +153,6 @@ public class PulsarRecordCursor implements RecordCursor {
             close();
             throw new RuntimeException(e);
         }
-    }
-
-    private SchemaHandler getSchemaHandler(Schema schema, SchemaType schemaType,
-                                           List<PulsarColumnHandle> columnHandles) {
-        SchemaHandler schemaHandler;
-        switch (schemaType) {
-            case JSON:
-                schemaHandler = new JSONSchemaHandler(columnHandles);
-                break;
-            case AVRO:
-                schemaHandler = new AvroSchemaHandler(schema, columnHandles);
-                break;
-            default:
-                throw new PrestoException(NOT_SUPPORTED, "Not supported schema type: " + schemaType);
-        }
-        return schemaHandler;
     }
 
     private ReadOnlyCursor getCursor(TopicName topicName, Position startPosition, ManagedLedgerFactory
