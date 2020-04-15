@@ -21,6 +21,7 @@ package org.apache.pulsar.client.impl;
 import java.nio.ByteBuffer;
 import java.util.Base64;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.schema.SchemaDefinition;
 import org.apache.pulsar.client.impl.schema.AvroSchema;
@@ -54,6 +55,21 @@ public class MessageImplTest {
         MessageImpl<?> msg = MessageImpl.create(builder, payload, Schema.BYTES);
 
         assertEquals(-1, msg.getSequenceId());
+    }
+
+    @Test
+    public void testSetDuplicatePropertiesKey() {
+        MessageMetadata.Builder builder = MessageMetadata.newBuilder();
+        builder.addProperties(org.apache.pulsar.common.api.proto.PulsarApi.KeyValue.newBuilder()
+                .setKey("key1").setValue("value1").build());
+        builder.addProperties(org.apache.pulsar.common.api.proto.PulsarApi.KeyValue.newBuilder()
+                .setKey("key1").setValue("value2").build());
+        builder.addProperties(org.apache.pulsar.common.api.proto.PulsarApi.KeyValue.newBuilder()
+                .setKey("key3").setValue("value3").build());
+        ByteBuffer payload = ByteBuffer.wrap(new byte[0]);
+        MessageImpl<?> msg = MessageImpl.create(builder, payload, Schema.BYTES);
+        assertEquals("value2", msg.getProperty("key1"));
+        assertEquals("value3", msg.getProperty("key3"));
     }
 
     @Test
@@ -184,7 +200,7 @@ public class MessageImplTest {
         Schema<KeyValue<SchemaTestUtils.Foo, SchemaTestUtils.Bar>> keyValueSchema = Schema.KeyValue(fooSchema, barSchema);
         keyValueSchema.setSchemaInfoProvider(multiVersionSchemaInfoProvider);
         when(multiVersionSchemaInfoProvider.getSchemaByVersion(any(byte[].class)))
-                .thenReturn(keyValueSchema.getSchemaInfo());
+                .thenReturn(CompletableFuture.completedFuture(keyValueSchema.getSchemaInfo()));
 
         SchemaTestUtils.Foo foo = new SchemaTestUtils.Foo();
         foo.setField1("field1");
@@ -221,7 +237,7 @@ public class MessageImplTest {
                 fooSchema, barSchema, KeyValueEncodingType.SEPARATED);
         keyValueSchema.setSchemaInfoProvider(multiVersionSchemaInfoProvider);
         when(multiVersionSchemaInfoProvider.getSchemaByVersion(any(byte[].class)))
-                .thenReturn(keyValueSchema.getSchemaInfo());
+                .thenReturn(CompletableFuture.completedFuture(keyValueSchema.getSchemaInfo()));
 
         SchemaTestUtils.Foo foo = new SchemaTestUtils.Foo();
         foo.setField1("field1");
@@ -259,7 +275,7 @@ public class MessageImplTest {
         Schema<KeyValue<SchemaTestUtils.Foo, SchemaTestUtils.Bar>> keyValueSchema = Schema.KeyValue(fooSchema, barSchema);
         keyValueSchema.setSchemaInfoProvider(multiVersionSchemaInfoProvider);
         when(multiVersionSchemaInfoProvider.getSchemaByVersion(any(byte[].class)))
-                .thenReturn(keyValueSchema.getSchemaInfo());
+                .thenReturn(CompletableFuture.completedFuture(keyValueSchema.getSchemaInfo()));
 
         SchemaTestUtils.Foo foo = new SchemaTestUtils.Foo();
         foo.setField1("field1");
@@ -296,7 +312,7 @@ public class MessageImplTest {
                 fooSchema, barSchema, KeyValueEncodingType.SEPARATED);
         keyValueSchema.setSchemaInfoProvider(multiVersionSchemaInfoProvider);
         when(multiVersionSchemaInfoProvider.getSchemaByVersion(any(byte[].class)))
-                .thenReturn(keyValueSchema.getSchemaInfo());
+                .thenReturn(CompletableFuture.completedFuture(keyValueSchema.getSchemaInfo()));
 
         SchemaTestUtils.Foo foo = new SchemaTestUtils.Foo();
         foo.setField1("field1");
@@ -334,7 +350,7 @@ public class MessageImplTest {
         Schema<KeyValue<SchemaTestUtils.Foo, SchemaTestUtils.Bar>> keyValueSchema = Schema.KeyValue(fooSchema, barSchema);
         keyValueSchema.setSchemaInfoProvider(multiVersionSchemaInfoProvider);
         when(multiVersionSchemaInfoProvider.getSchemaByVersion(any(byte[].class)))
-                .thenReturn(keyValueSchema.getSchemaInfo());
+                .thenReturn(CompletableFuture.completedFuture(keyValueSchema.getSchemaInfo()));
 
         SchemaTestUtils.Foo foo = new SchemaTestUtils.Foo();
         foo.setField1("field1");
@@ -371,7 +387,7 @@ public class MessageImplTest {
                 fooSchema, barSchema, KeyValueEncodingType.SEPARATED);
         keyValueSchema.setSchemaInfoProvider(multiVersionSchemaInfoProvider);
         when(multiVersionSchemaInfoProvider.getSchemaByVersion(any(byte[].class)))
-                .thenReturn(keyValueSchema.getSchemaInfo());
+                .thenReturn(CompletableFuture.completedFuture(keyValueSchema.getSchemaInfo()));
 
         SchemaTestUtils.Foo foo = new SchemaTestUtils.Foo();
         foo.setField1("field1");

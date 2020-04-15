@@ -54,6 +54,7 @@ import org.apache.bookkeeper.mledger.ManagedCursor;
 import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.MockedBookKeeperTestCase;
+import org.apache.pulsar.common.policies.data.OffloadPolicies;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -65,6 +66,7 @@ public class OffloadPrefixReadTest extends MockedBookKeeperTestCase {
         config.setMaxEntriesPerLedger(10);
         config.setMinimumRolloverTime(0, TimeUnit.SECONDS);
         config.setRetentionTime(10, TimeUnit.MINUTES);
+        config.setRetentionSizeInMB(10);
         config.setLedgerOffloader(offloader);
         ManagedLedgerImpl ledger = (ManagedLedgerImpl)factory.open("my_test_ledger", config);
 
@@ -144,6 +146,16 @@ public class OffloadPrefixReadTest extends MockedBookKeeperTestCase {
             offloads.remove(uuid);
             return CompletableFuture.completedFuture(null);
         };
+
+        @Override
+        public OffloadPolicies getOffloadPolicies() {
+            return null;
+        }
+
+        @Override
+        public void close() {
+
+        }
     }
 
     static class MockOffloadReadHandle implements ReadHandle {
@@ -266,6 +278,11 @@ public class OffloadPrefixReadTest extends MockedBookKeeperTestCase {
 
         @Override
         public int getMetadataFormatVersion() { return metadataFormatVersion; }
+
+        @Override
+        public long getCToken() {
+            return 0;
+        }
 
         @Override
         public int getEnsembleSize() { return ensembleSize; }

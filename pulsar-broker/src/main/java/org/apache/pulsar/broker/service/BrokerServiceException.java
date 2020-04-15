@@ -22,6 +22,7 @@ import org.apache.pulsar.broker.service.schema.exceptions.IncompatibleSchemaExce
 import org.apache.pulsar.broker.service.schema.exceptions.InvalidSchemaDataException;
 import org.apache.pulsar.common.api.proto.PulsarApi;
 import org.apache.pulsar.common.api.proto.PulsarApi.ServerError;
+import org.apache.pulsar.transaction.coordinator.exceptions.CoordinatorException;
 
 /**
  * Base type of exception thrown by Pulsar Broker Service
@@ -116,6 +117,18 @@ public class BrokerServiceException extends Exception {
         }
     }
 
+    public static class TopicNotFoundException extends BrokerServiceException {
+        public TopicNotFoundException(String msg) {
+            super(msg);
+        }
+    }
+
+    public static class SubscriptionNotFoundException extends BrokerServiceException {
+        public SubscriptionNotFoundException(String msg) {
+            super(msg);
+        }
+    }
+
     public static class SubscriptionBusyException extends BrokerServiceException {
         public SubscriptionBusyException(String msg) {
             super(msg);
@@ -180,6 +193,8 @@ public class BrokerServiceException extends Exception {
         } else if (t instanceof ServiceUnitNotReadyException || t instanceof TopicFencedException
                 || t instanceof SubscriptionFencedException) {
             return PulsarApi.ServerError.ServiceNotReady;
+        } else if (t instanceof TopicNotFoundException) {
+            return PulsarApi.ServerError.TopicNotFound;
         } else if (t instanceof IncompatibleSchemaException
             || t instanceof InvalidSchemaDataException) {
             // for backward compatible with old clients, invalid schema data
@@ -187,6 +202,10 @@ public class BrokerServiceException extends Exception {
             return PulsarApi.ServerError.IncompatibleSchema;
         } else if (t instanceof ConsumerAssignException) {
             return ServerError.ConsumerAssignError;
+        } else if (t instanceof CoordinatorException.CoordinatorNotFoundException) {
+            return ServerError.TransactionCoordinatorNotFound;
+        } else if (t instanceof CoordinatorException.InvalidTxnStatusException) {
+            return ServerError.InvalidTxnStatus;
         } else {
             if (checkCauseIfUnknown) {
                 return getClientErrorCode(t.getCause(), false);

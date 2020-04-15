@@ -40,6 +40,7 @@ import javax.ws.rs.core.Response;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -162,7 +163,8 @@ public class Worker {
                     (int) workerConfig.getZooKeeperSessionTimeoutMillis(),
                     workerConfig.getZooKeeperOperationTimeoutSeconds(),
                     workerConfig.getConfigurationStoreServers(),
-                    orderedExecutor, cacheExecutor);
+                    orderedExecutor, cacheExecutor,
+                    workerConfig.getZooKeeperOperationTimeoutSeconds());
             try {
                 this.globalZkCache.start();
             } catch (IOException e) {
@@ -192,7 +194,7 @@ public class Worker {
             if (null != this.server) {
                 this.server.stop();
             }
-            workerService.stop();    
+            workerService.stop();
         } catch(Exception e) {
             log.warn("Failed to gracefully stop worker service ", e);
         }
@@ -204,8 +206,14 @@ public class Worker {
                 log.warn("Failed to close global zk cache ", e);
             }
         }
+    }
 
 
-        
+    public Optional<Integer> getListenPortHTTP() {
+        return this.server.getListenPortHTTP();
+    }
+
+    public Optional<Integer> getListenPortHTTPS() {
+        return this.server.getListenPortHTTPS();
     }
 }

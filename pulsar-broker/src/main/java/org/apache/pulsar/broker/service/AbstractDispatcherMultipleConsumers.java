@@ -40,7 +40,7 @@ public abstract class AbstractDispatcherMultipleConsumers extends AbstractBaseDi
 
     protected final CopyOnWriteArrayList<Consumer> consumerList = new CopyOnWriteArrayList<>();
     protected final ObjectSet<Consumer> consumerSet = new ObjectHashSet<>();
-    protected int currentConsumerRoundRobinIndex = 0;
+    protected volatile int currentConsumerRoundRobinIndex = 0;
 
     protected static final int FALSE = 0;
     protected static final int TRUE = 1;
@@ -62,6 +62,10 @@ public abstract class AbstractDispatcherMultipleConsumers extends AbstractBaseDi
 
     public synchronized boolean canUnsubscribe(Consumer consumer) {
         return consumerList.size() == 1 && consumerSet.contains(consumer);
+    }
+
+    public boolean isClosed() {
+        return isClosed == TRUE;
     }
 
     public SubType getType() {
@@ -211,22 +215,6 @@ public abstract class AbstractDispatcherMultipleConsumers extends AbstractBaseDi
             }
         }
         return -1;
-    }
-
-    public static final String NONE_KEY = "NONE_KEY";
-    protected byte[] peekStickyKey(ByteBuf metadataAndPayload) {
-        metadataAndPayload.markReaderIndex();
-        PulsarApi.MessageMetadata metadata = Commands.parseMessageMetadata(metadataAndPayload);
-        metadataAndPayload.resetReaderIndex();
-        String key = metadata.getPartitionKey();
-        if (log.isDebugEnabled()) {
-            log.debug("Parse message metadata, partition key is {}, ordering key is {}", key, metadata.getOrderingKey());
-        }
-        if (StringUtils.isNotBlank(key) || metadata.hasOrderingKey()) {
-            return metadata.hasOrderingKey() ? metadata.getOrderingKey().toByteArray() : key.getBytes();
-        }
-        metadata.recycle();
-        return NONE_KEY.getBytes();
     }
 
     private static final Logger log = LoggerFactory.getLogger(PersistentStickyKeyDispatcherMultipleConsumers.class);

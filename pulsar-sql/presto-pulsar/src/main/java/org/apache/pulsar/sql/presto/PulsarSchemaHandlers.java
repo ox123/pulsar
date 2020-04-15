@@ -23,7 +23,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.presto.spi.PrestoException;
 import java.util.List;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.common.schema.SchemaType;
 
 class PulsarSchemaHandlers {
 
@@ -43,6 +45,8 @@ class PulsarSchemaHandlers {
                     throw new PrestoException(NOT_SUPPORTED, "Not supported schema type: " + schemaInfo.getType());
             }
 
+        } else if (schemaInfo.getType().equals(SchemaType.KEY_VALUE)) {
+            return new KeyValueSchemaHandler(schemaInfo, columnHandles);
         } else {
             throw new PrestoException(
                     NOT_SUPPORTED,
@@ -50,4 +54,7 @@ class PulsarSchemaHandlers {
         }
     }
 
+    static SchemaInfo defaultSchema() {
+        return Schema.BYTES.getSchemaInfo();
+    }
 }

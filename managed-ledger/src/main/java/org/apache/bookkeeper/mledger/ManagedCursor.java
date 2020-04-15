@@ -20,9 +20,12 @@ package org.apache.bookkeeper.mledger;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Predicate;
+import com.google.common.collect.Range;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.bookkeeper.mledger.AsyncCallbacks.ClearBacklogCallback;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.DeleteCallback;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.FindEntryCallback;
@@ -30,6 +33,7 @@ import org.apache.bookkeeper.mledger.AsyncCallbacks.MarkDeleteCallback;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.ReadEntriesCallback;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.mledger.AsyncCallbacks.SkipEntriesCallback;
+import org.apache.bookkeeper.mledger.impl.PositionImpl;
 
 /**
  * A ManangedCursor is a persisted cursor inside a ManagedLedger.
@@ -189,9 +193,10 @@ public interface ManagedCursor {
      *
      * <p/>This method has linear time complexity on the number of ledgers included in the managed ledger.
      *
+     * @param isPrecise set to true to get precise backlog count
      * @return the number of entries
      */
-    long getNumberOfEntriesInBacklog();
+    long getNumberOfEntriesInBacklog(boolean isPrecise);
 
     /**
      * This signals that the reader is done with all the entries up to "position" (included). This can potentially
@@ -306,7 +311,7 @@ public interface ManagedCursor {
      * The deletion of the messages is not persisted into the durable storage and cannot be recovered upon the reopening
      * of the ManagedLedger
      *
-     * @param positions
+     * @param position
      *            the positions of the messages to be deleted
      * @param callback
      *            callback object
@@ -587,4 +592,21 @@ public interface ManagedCursor {
      */
     void setThrottleMarkDelete(double throttleMarkDelete);
 
+    /**
+     * Get {@link ManagedLedger} attached with cursor
+     * 
+     * @return ManagedLedger
+     */
+    ManagedLedger getManagedLedger();
+
+    /**
+     * Get last individual deleted range
+     * @return range
+     */
+    Range<PositionImpl> getLastIndividualDeletedRange();
+
+    /**
+     * Trim delete entries for the given entries
+     */
+    void trimDeletedEntries(List<Entry> entries);
 }

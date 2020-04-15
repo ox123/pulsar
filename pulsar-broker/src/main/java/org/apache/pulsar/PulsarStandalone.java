@@ -39,6 +39,7 @@ import org.apache.pulsar.common.policies.data.ClusterData;
 import org.apache.pulsar.common.policies.data.TenantInfo;
 import org.apache.pulsar.functions.worker.WorkerConfig;
 import org.apache.pulsar.functions.worker.WorkerService;
+import org.apache.pulsar.transaction.coordinator.TransactionCoordinatorID;
 import org.apache.pulsar.zookeeper.LocalBookkeeperEnsemble;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -272,15 +273,6 @@ public class PulsarStandalone implements AutoCloseable {
                 workerConfig = WorkerConfig.load(this.getFnWorkerConfigFile());
             }
             // worker talks to local broker
-            boolean useTls = workerConfig.isUseTls();
-            String pulsarServiceUrl = useTls
-                    ? PulsarService.brokerUrlTls(config)
-                    : PulsarService.brokerUrl(config);
-            String webServiceUrl = useTls
-                    ? PulsarService.webAddressTls(config)
-                    : PulsarService.webAddress(config);
-            workerConfig.setPulsarServiceUrl(pulsarServiceUrl);
-            workerConfig.setPulsarWebServiceUrl(webServiceUrl);
             if (this.isNoStreamStorage()) {
                 // only set the state storage service url when state is enabled.
                 workerConfig.setStateStorageServiceUrl(null);
@@ -306,7 +298,6 @@ public class PulsarStandalone implements AutoCloseable {
             workerConfig.setZooKeeperSessionTimeoutMillis(config.getZooKeeperSessionTimeoutMillis());
             workerConfig.setZooKeeperOperationTimeoutSeconds(config.getZooKeeperOperationTimeoutSeconds());
 
-            workerConfig.setUseTls(config.isTlsEnabled());
             workerConfig.setTlsHostnameVerificationEnable(false);
 
             workerConfig.setTlsAllowInsecureConnection(config.isTlsAllowInsecureConnection());
@@ -326,16 +317,30 @@ public class PulsarStandalone implements AutoCloseable {
         broker = new PulsarService(config, Optional.ofNullable(fnWorkerService));
         broker.start();
 
-        URL webServiceUrl = new URL(
-                String.format("http://%s:%d", config.getAdvertisedAddress(), config.getWebServicePort().get()));
-        final String brokerServiceUrl = String.format("pulsar://%s:%d", config.getAdvertisedAddress(),
-                config.getBrokerServicePort().get());
-        admin = PulsarAdmin.builder().serviceHttpUrl(webServiceUrl.toString()).authentication(
-                config.getBrokerClientAuthenticationPlugin(), config.getBrokerClientAuthenticationParameters()).build();
+        broker.getTransactionMetadataStoreService().addTransactionMetadataStore(TransactionCoordinatorID.get(0));
 
         final String cluster = config.getClusterName();
 
-        createSampleNameSpace(webServiceUrl, brokerServiceUrl, cluster);
+        if (!config.isTlsEnabled()) {
+            URL webServiceUrl = new URL(
+                    String.format("http://%s:%d", config.getAdvertisedAddress(), config.getWebServicePort().get()));
+            String brokerServiceUrl = String.format("pulsar://%s:%d", config.getAdvertisedAddress(),
+                    config.getBrokerServicePort().get());
+            admin = PulsarAdmin.builder().serviceHttpUrl(webServiceUrl.toString()).authentication(
+                    config.getBrokerClientAuthenticationPlugin(), config.getBrokerClientAuthenticationParameters()).build();
+            ClusterData clusterData = new ClusterData(webServiceUrl.toString(), null, brokerServiceUrl, null);
+            createSampleNameSpace(clusterData, cluster);
+        } else {
+            URL webServiceUrlTls = new URL(
+                    String.format("http://%s:%d", config.getAdvertisedAddress(), config.getWebServicePortTls().get()));
+            String brokerServiceUrlTls = String.format("pulsar+ssl://%s:%d", config.getAdvertisedAddress(),
+                    config.getBrokerServicePortTls().get());
+            admin = PulsarAdmin.builder().serviceHttpUrl(webServiceUrlTls.toString()).authentication(
+                    config.getBrokerClientAuthenticationPlugin(), config.getBrokerClientAuthenticationParameters()).build();
+            ClusterData clusterData = new ClusterData(null, webServiceUrlTls.toString(), null, brokerServiceUrlTls);
+            createSampleNameSpace(clusterData, cluster);
+        }
+
         createDefaultNameSpace(cluster);
 
         log.debug("--- setup completed ---");
@@ -359,14 +364,12 @@ public class PulsarStandalone implements AutoCloseable {
         }
     }
 
-    private void createSampleNameSpace(URL webServiceUrl, String brokerServiceUrl, String cluster) {
+    private void createSampleNameSpace(ClusterData clusterData, String cluster) {
         // Create a sample namespace
         final String property = "sample";
         final String globalCluster = "global";
         final String namespace = property + "/" + cluster + "/ns1";
         try {
-            ClusterData clusterData = new ClusterData(webServiceUrl.toString(), null /* serviceUrlTls */,
-                    brokerServiceUrl, null /* brokerServiceUrlTls */);
             if (!admin.clusters().getClusters().contains(cluster)) {
                 admin.clusters().createCluster(cluster, clusterData);
             } else {

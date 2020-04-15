@@ -30,6 +30,7 @@ import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.connectors.pulsar.partitioner.PulsarKeyExtractor;
+import org.apache.flink.streaming.connectors.pulsar.partitioner.PulsarPropertiesExtractor;
 import org.apache.flink.table.sinks.AppendStreamTableSink;
 import org.apache.flink.table.sinks.TableSink;
 import org.apache.flink.types.Row;
@@ -46,6 +47,7 @@ public abstract class PulsarTableSink implements AppendStreamTableSink<Row> {
     protected ProducerConfigurationData producerConfigurationData = new ProducerConfigurationData();
     protected SerializationSchema<Row> serializationSchema;
     protected PulsarKeyExtractor<Row> keyExtractor;
+    protected PulsarPropertiesExtractor<Row> propertiesExtractor;
     protected String[] fieldNames;
     protected TypeInformation[] fieldTypes;
     protected final String routingKeyFieldName;
@@ -59,7 +61,7 @@ public abstract class PulsarTableSink implements AppendStreamTableSink<Row> {
         checkNotNull(topic, "Topic is null");
         this.clientConfigurationData.setServiceUrl(serviceUrl);
         this.clientConfigurationData.setAuthentication(authentication);
-        this.producerConfigurationData.setTopicName(topic);;
+        this.producerConfigurationData.setTopicName(topic);
         this.routingKeyFieldName = routingKeyFieldName;
     }
 
@@ -91,11 +93,12 @@ public abstract class PulsarTableSink implements AppendStreamTableSink<Row> {
      * Returns the low-level producer.
      */
     protected FlinkPulsarProducer<Row> createFlinkPulsarProducer() {
-        return new FlinkPulsarProducer<Row>(
-                clientConfigurationData,
-                producerConfigurationData,
-                serializationSchema,
-                keyExtractor);
+        return new FlinkPulsarProducer<>(
+            clientConfigurationData,
+            producerConfigurationData,
+            serializationSchema,
+            keyExtractor,
+            propertiesExtractor);
     }
 
     @Override
@@ -141,6 +144,7 @@ public abstract class PulsarTableSink implements AppendStreamTableSink<Row> {
                 routingKeyFieldName,
                 fieldNames,
                 fieldTypes);
+        sink.propertiesExtractor = PulsarPropertiesExtractor.EMPTY;
 
         return sink;
     }

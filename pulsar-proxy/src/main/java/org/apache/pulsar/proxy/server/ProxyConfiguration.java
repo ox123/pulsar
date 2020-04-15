@@ -88,6 +88,11 @@ public class ProxyConfiguration implements PulsarConfiguration {
         doc = "ZooKeeper session timeout (in milliseconds)"
     )
     private int zookeeperSessionTimeoutMs = 30_000;
+    @FieldContext(
+            category = CATEGORY_BROKER_DISCOVERY,
+            doc = "ZooKeeper cache expiry time in seconds"
+        )
+    private int zooKeeperCacheExpirySeconds = 300;
 
     @FieldContext(
         category = CATEGORY_BROKER_DISCOVERY,
@@ -153,7 +158,7 @@ public class ProxyConfiguration implements PulsarConfiguration {
                     + " 1: Parse and log any tcp channel info and command info without message body"
                     + " 2: Parse and log channel info, command info and message body"
     )
-    private Integer proxyLogLevel = 0;
+    private Optional<Integer> proxyLogLevel = Optional.ofNullable(0);
 
     @FieldContext(
         category = CATEGORY_SERVER,
@@ -197,6 +202,12 @@ public class ProxyConfiguration implements PulsarConfiguration {
             + "to take effect"
     )
     private boolean forwardAuthorizationCredentials = false;
+    @FieldContext(
+        category = CATEGORY_AUTHENTICATION,
+        doc = "Whether the '/metrics' endpoint requires authentication. Defaults to true."
+            + "'authenticationEnabled' must also be set for this to take effect."
+    )
+    private boolean authenticateMetricsEndpoint = true;
 
 
     @FieldContext(
@@ -378,13 +389,6 @@ public class ProxyConfiguration implements PulsarConfiguration {
 
     public Optional<Integer> getServicePort() {
         return servicePort;
-    }
-
-    public Optional<Integer> getproxyLogLevel() {
-        return Optional.ofNullable(proxyLogLevel);
-    }
-    public void setProxyLogLevel(int proxyLogLevel) {
-        this.proxyLogLevel = proxyLogLevel;
     }
 
     public Optional<Integer> getServicePortTls() {

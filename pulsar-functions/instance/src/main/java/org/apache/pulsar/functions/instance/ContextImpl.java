@@ -18,12 +18,15 @@
  */
 package org.apache.pulsar.functions.instance;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import io.netty.buffer.ByteBuf;
 import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.Summary;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.bookkeeper.api.kv.Table;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pulsar.client.api.*;
 import org.apache.pulsar.client.impl.ProducerBuilderImpl;
@@ -47,7 +50,6 @@ import org.slf4j.Logger;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -72,9 +74,8 @@ class ContextImpl implements Context, SinkContext, SourceContext {
     private final SecretsProvider secretsProvider;
     private final Map<String, Object> secretsMap;
 
-    @Getter
-    @Setter
-    private StateContextImpl stateContext;
+    @VisibleForTesting
+    StateContextImpl stateContext;
     private Map<String, Object> userConfigs;
 
     private ComponentStatsManager statsManager;
@@ -95,7 +96,8 @@ class ContextImpl implements Context, SinkContext, SourceContext {
 
     public ContextImpl(InstanceConfig config, Logger logger, PulsarClient client,
                        SecretsProvider secretsProvider, CollectorRegistry collectorRegistry, String[] metricsLabels,
-                       Function.FunctionDetails.ComponentType componentType, ComponentStatsManager statsManager) {
+                       Function.FunctionDetails.ComponentType componentType, ComponentStatsManager statsManager,
+                       Table<ByteBuf, ByteBuf> stateTable) {
         this.config = config;
         this.logger = logger;
         this.publishProducers = new HashMap<>();
@@ -146,6 +148,10 @@ class ContextImpl implements Context, SinkContext, SourceContext {
                 .quantile(0.999, 0.01)
                 .register(collectorRegistry);
         this.componentType = componentType;
+
+        if (null != stateTable) {
+            this.stateContext = new StateContextImpl(stateTable);
+        }
     }
 
     public void setCurrentMessageContext(Record<?> record) {
@@ -229,8 +235,20 @@ class ContextImpl implements Context, SinkContext, SourceContext {
 
     @Override
     public Optional<Object> getUserConfigValue(String key) {
+        Object value = userConfigs.getOrDefault(key, null);
 
-        return Optional.ofNullable(userConfigs.getOrDefault(key, null));
+        if (value instanceof String && ((String) value).startsWith("$")) {
+            // any string starts with '$' is considered as system env symbol and will be
+            // replaced with the actual env value
+            try {
+                String actualValue = System.getenv(((String) value).substring(1));
+                return Optional.ofNullable(actualValue);
+            } catch (SecurityException ex) {
+                throw new RuntimeException("Access to environment variable " + value + " is not allowed.", ex);
+            }
+        }  else {
+            return Optional.ofNullable(value);
+        }
     }
 
     @Override
@@ -305,6 +323,22 @@ class ContextImpl implements Context, SinkContext, SourceContext {
     }
 
     @Override
+    public CompletableFuture<Void> deleteStateAsync(String key) {
+        ensureStateEnabled();
+        return stateContext.delete(key);
+    }
+
+    @Override
+    public void deleteState(String key) {
+        ensureStateEnabled();
+        try {
+            result(stateContext.delete(key));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to delete the state value for key '" + key + "'");
+        }
+    }
+
+    @Override
     public CompletableFuture<ByteBuffer> getStateAsync(String key) {
         ensureStateEnabled();
         return stateContext.get(key);
@@ -316,7 +350,7 @@ class ContextImpl implements Context, SinkContext, SourceContext {
         try {
             return result(stateContext.get(key));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to retrieve the state value for key '" + key + "'");
+            throw new RuntimeException("Failed to retrieve the state value for key '" + key + "'", e);
         }
     }
 
@@ -447,7 +481,7 @@ class ContextImpl implements Context, SinkContext, SourceContext {
                     .whenComplete((result, cause) -> {
                         if (null != cause) {
                             statsManager.incrSysExceptions(cause);
-                            logger.error("Failed to publish to topic with error {}", cause);
+                            logger.error("Failed to publish to topic with error", cause);
                         }
                     });
         }

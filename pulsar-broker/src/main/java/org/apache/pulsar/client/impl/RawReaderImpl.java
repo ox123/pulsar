@@ -33,9 +33,11 @@ import org.apache.pulsar.client.api.RawReader;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
+import org.apache.pulsar.common.api.proto.PulsarApi.MessageMetadata;
 import org.apache.pulsar.common.api.proto.PulsarApi.CommandAck.AckType;
 import org.apache.pulsar.common.api.proto.PulsarApi.MessageIdData;
 import org.apache.pulsar.common.naming.TopicName;
+import org.apache.pulsar.common.protocol.Commands;
 import org.apache.pulsar.common.util.collections.GrowableArrayBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +70,11 @@ public class RawReaderImpl implements RawReader {
     }
 
     @Override
+    public CompletableFuture<Boolean> hasMessageAvailableAsync() {
+        return consumer.hasMessageAvailableAsync();
+    }
+
+    @Override
     public CompletableFuture<Void> seekAsync(MessageId messageId) {
         return consumer.seekAsync(messageId);
     }
@@ -79,7 +86,7 @@ public class RawReaderImpl implements RawReader {
 
     @Override
     public CompletableFuture<Void> acknowledgeCumulativeAsync(MessageId messageId, Map<String,Long> properties) {
-        return consumer.doAcknowledge(messageId, AckType.Cumulative, properties);
+        return consumer.doAcknowledgeWithTxn(messageId, AckType.Cumulative, properties, null);
     }
 
     @Override
@@ -110,11 +117,11 @@ public class RawReaderImpl implements RawReader {
                 TopicName.getPartitionIndex(conf.getSingleTopic()),
                 false,
                 consumerFuture,
-                SubscriptionMode.Durable,
                 MessageId.earliest,
+                0 /* startMessageRollbackDurationInSec */,
                 Schema.BYTES, null,
-                client.getConfiguration().getDefaultBackoffIntervalNanos(),
-                client.getConfiguration().getMaxBackoffIntervalNanos());
+                true
+            );
             incomingRawMessages = new GrowableArrayBlockingQueue<>();
             pendingRawReceives = new ConcurrentLinkedQueue<>();
         }
@@ -133,6 +140,15 @@ public class RawReaderImpl implements RawReader {
             if (future == null) {
                 assert(messageAndCnx == null);
             } else {
+                int numMsg;
+                try {
+                    MessageMetadata msgMetadata = Commands.parseMessageMetadata(messageAndCnx.msg.getHeadersAndPayload());
+                    numMsg = msgMetadata.getNumMessagesInBatch();
+                    msgMetadata.recycle();
+                } catch (Throwable t) {
+                    // TODO message validation
+                    numMsg = 1;
+                }
                 if (!future.complete(messageAndCnx.msg)) {
                     messageAndCnx.msg.close();
                     closeAsync();
@@ -140,7 +156,7 @@ public class RawReaderImpl implements RawReader {
 
                 ClientCnx currentCnx = cnx();
                 if (currentCnx == messageAndCnx.cnx) {
-                    increaseAvailablePermits(currentCnx);
+                    increaseAvailablePermits(currentCnx, numMsg);
                 }
             }
         }
