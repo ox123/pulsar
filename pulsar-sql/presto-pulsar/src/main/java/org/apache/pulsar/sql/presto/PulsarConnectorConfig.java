@@ -23,13 +23,18 @@ import io.airlift.configuration.Config;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import javax.validation.constraints.NotNull;
+import javax.ws.rs.client.ClientBuilder;
+
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.naming.NamedEntity;
+import org.apache.pulsar.common.nar.NarClassLoader;
+import org.apache.pulsar.common.policies.data.OffloadPolicies;
 import org.apache.pulsar.common.protocol.Commands;
 
 /**
@@ -73,6 +78,9 @@ public class PulsarConnectorConfig implements AutoCloseable {
     private long managedLedgerCacheSizeMB = 0L;
     private int managedLedgerNumWorkerThreads = Runtime.getRuntime().availableProcessors();
     private int managedLedgerNumSchedulerThreads = Runtime.getRuntime().availableProcessors();
+
+    // --- Nar extraction
+    private String narExtractionDirectory = NarClassLoader.DEFAULT_NAR_EXTRACTION_DIR;
 
     @NotNull
     public String getBrokerServiceUrl() {
@@ -358,6 +366,17 @@ public class PulsarConnectorConfig implements AutoCloseable {
         return this;
     }
 
+    // --- Nar extraction config
+    public String getNarExtractionDirectory() {
+        return narExtractionDirectory;
+    }
+
+    @Config("pulsar.nar-extraction-directory")
+    public PulsarConnectorConfig setNarExtractionDirectory(String narExtractionDirectory) {
+        this.narExtractionDirectory = narExtractionDirectory;
+        return this;
+    }
+
     @NotNull
     public PulsarAdmin getPulsarAdmin() throws PulsarClientException {
         if (this.pulsarAdmin == null) {
@@ -379,9 +398,20 @@ public class PulsarConnectorConfig implements AutoCloseable {
                 builder.tlsTrustCertsFilePath(getTlsTrustCertsFilePath());
             }
 
+            builder.setContextClassLoader(ClientBuilder.class.getClassLoader());
             this.pulsarAdmin = builder.serviceHttpUrl(getBrokerServiceUrl()).build();
         }
         return this.pulsarAdmin;
+    }
+
+    public OffloadPolicies getOffloadPolices() {
+        Properties offloadProperties = new Properties();
+        offloadProperties.putAll(getOffloaderProperties());
+        OffloadPolicies offloadPolicies = OffloadPolicies.create(offloadProperties);
+        offloadPolicies.setManagedLedgerOffloadDriver(getManagedLedgerOffloadDriver());
+        offloadPolicies.setManagedLedgerOffloadMaxThreads(getManagedLedgerOffloadMaxThreads());
+        offloadPolicies.setOffloadersDirectory(getOffloadersDirectory());
+        return offloadPolicies;
     }
 
     @Override

@@ -36,6 +36,7 @@ import org.apache.pulsar.common.policies.data.BookieAffinityGroupData;
 import org.apache.pulsar.common.policies.data.BundlesData;
 import org.apache.pulsar.common.policies.data.DelayedDeliveryPolicies;
 import org.apache.pulsar.common.policies.data.DispatchRate;
+import org.apache.pulsar.common.policies.data.InactiveTopicPolicies;
 import org.apache.pulsar.common.policies.data.OffloadPolicies;
 import org.apache.pulsar.common.policies.data.PersistencePolicies;
 import org.apache.pulsar.common.policies.data.Policies;
@@ -774,6 +775,80 @@ public interface Namespaces {
      *            TTL values for all messages for all topics in this namespace
      */
     CompletableFuture<Void> setNamespaceMessageTTLAsync(String namespace, int ttlInSeconds);
+
+    /**
+     * Get the subscription expiration time for a namespace.
+     * <p/>
+     * Response example:
+     *
+     * <pre>
+     * <code>1440</code>
+     * </pre>
+     *
+     * @param namespace
+     *            Namespace name
+     *
+     * @throws NotAuthorizedException
+     *             Don't have admin permission
+     * @throws NotFoundException
+     *             Namespace does not exist
+     * @throws PulsarAdminException
+     *             Unexpected error
+     */
+    int getSubscriptionExpirationTime(String namespace) throws PulsarAdminException;
+
+    /**
+     * Get the subscription expiration time for a namespace asynchronously.
+     * <p/>
+     * Response example:
+     *
+     * <pre>
+     * <code>1440</code>
+     * </pre>
+     *
+     * @param namespace
+     *            Namespace name
+     */
+    CompletableFuture<Integer> getSubscriptionExpirationTimeAsync(String namespace);
+
+    /**
+     * Set the subscription expiration time in minutes for all the topics within a namespace.
+     * <p/>
+     * Request example:
+     *
+     * <pre>
+     * <code>1440</code>
+     * </pre>
+     *
+     * @param namespace
+     *            Namespace name
+     * @param expirationTime
+     *            Expiration time values for all subscriptions for all topics in this namespace
+     *
+     * @throws NotAuthorizedException
+     *             Don't have admin permission
+     * @throws NotFoundException
+     *             Namespace does not exist
+     * @throws PulsarAdminException
+     *             Unexpected error
+     */
+    void setSubscriptionExpirationTime(String namespace, int expirationTime) throws PulsarAdminException;
+
+    /**
+     * Set the subscription expiration time in minutes for all the topics within a namespace asynchronously.
+     * <p/>
+     * Request example:
+     *
+     * <pre>
+     * <code>1440</code>
+     * </pre>
+     *
+     * @param namespace
+     *            Namespace name
+     * @param expirationTime
+     *            Expiration time values for all subscriptions for all topics in this namespace
+     */
+    CompletableFuture<Void> setSubscriptionExpirationTimeAsync(String namespace, int expirationTime);
 
     /**
      * Set anti-affinity group name for a namespace.
@@ -2132,6 +2207,53 @@ public interface Namespaces {
     CompletableFuture<Void> setDelayedDeliveryMessagesAsync(
             String namespace, DelayedDeliveryPolicies delayedDeliveryPolicies);
 
+    /**
+     * Get the inactive deletion strategy for all topics within a namespace synchronously.
+     * @param namespace
+     * @return
+     * @throws PulsarAdminException
+     */
+    InactiveTopicPolicies getInactiveTopicPolicies(String namespace) throws PulsarAdminException;
+
+    /**
+     * remove InactiveTopicPolicies from a namespace asynchronously.
+     * @param namespace
+     * @return
+     */
+    CompletableFuture<Void> removeInactiveTopicPoliciesAsync(String namespace);
+
+    /**
+     * Remove inactive topic policies from a namespace.
+     * @param namespace
+     * @throws PulsarAdminException
+     */
+    void removeInactiveTopicPolicies(String namespace) throws PulsarAdminException;
+
+    /**
+     * Get the inactive deletion strategy for all topics within a namespace asynchronously.
+     * @param namespace
+     * @return
+     */
+    CompletableFuture<InactiveTopicPolicies> getInactiveTopicPoliciesAsync(String namespace);
+
+    /**
+     * As same as setInactiveTopicPoliciesAsync，but it is synchronous.
+     * @param namespace
+     * @param inactiveTopicPolicies
+     */
+    void setInactiveTopicPolicies(
+            String namespace, InactiveTopicPolicies inactiveTopicPolicies) throws PulsarAdminException;
+
+    /**
+     * You can set the inactive deletion strategy at the namespace level.
+     * Its priority is higher than the inactive deletion strategy at the broker level.
+     * All topics under this namespace will follow this strategy.
+     * @param namespace
+     * @param inactiveTopicPolicies
+     * @return
+     */
+    CompletableFuture<Void> setInactiveTopicPoliciesAsync(
+            String namespace, InactiveTopicPolicies inactiveTopicPolicies);
     /**
      * Set the given subscription auth mode on all topics on a namespace.
      *

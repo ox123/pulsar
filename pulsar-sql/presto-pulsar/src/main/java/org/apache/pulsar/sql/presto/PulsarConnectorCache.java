@@ -40,7 +40,6 @@ import org.apache.bookkeeper.mledger.impl.NullLedgerOffloader;
 import org.apache.bookkeeper.mledger.offload.OffloaderUtils;
 import org.apache.bookkeeper.mledger.offload.Offloaders;
 import org.apache.bookkeeper.stats.StatsProvider;
-import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pulsar.PulsarVersion;
 import org.apache.pulsar.common.naming.NamespaceName;
@@ -81,9 +80,8 @@ public class PulsarConnectorCache {
 
         this.statsProvider.start(clientConfiguration);
 
-        OffloadPolicies offloadPolicies = new OffloadPolicies();
-        BeanUtils.copyProperties(offloadPolicies, pulsarConnectorConfig);
-        this.defaultOffloader = initManagedLedgerOffloader(offloadPolicies);
+        this.defaultOffloader = initManagedLedgerOffloader(
+                pulsarConnectorConfig.getOffloadPolices(), pulsarConnectorConfig);
     }
 
     public static PulsarConnectorCache getConnectorCache(PulsarConnectorConfig pulsarConnectorConfig) throws Exception {
@@ -99,7 +97,8 @@ public class PulsarConnectorCache {
         throws Exception {
         ClientConfiguration bkClientConfiguration = new ClientConfiguration()
                 .setZkServers(pulsarConnectorConfig.getZookeeperUri())
-                .setMetadataServiceUri("zk://" + pulsarConnectorConfig.getZookeeperUri() + "/ledgers")
+                .setMetadataServiceUri("zk://" + pulsarConnectorConfig.getZookeeperUri()
+                        .replace(",", ";") + "/ledgers")
                 .setClientTcpNoDelay(false)
                 .setUseV2WireProtocol(true)
                 .setStickyReadsEnabled(false)
@@ -117,7 +116,8 @@ public class PulsarConnectorCache {
         return new ManagedLedgerFactoryImpl(bkClientConfiguration, managedLedgerFactoryConfig);
     }
 
-    public ManagedLedgerConfig getManagedLedgerConfig(NamespaceName namespaceName, OffloadPolicies offloadPolicies) {
+    public ManagedLedgerConfig getManagedLedgerConfig(NamespaceName namespaceName, OffloadPolicies offloadPolicies,
+                                                      PulsarConnectorConfig pulsarConnectorConfig) {
         ManagedLedgerConfig managedLedgerConfig = new ManagedLedgerConfig();
         if (offloadPolicies == null) {
             managedLedgerConfig.setLedgerOffloader(this.defaultOffloader);
@@ -130,7 +130,7 @@ public class PulsarConnectorCache {
                             if (offloader != null) {
                                 offloader.close();
                             }
-                            return initManagedLedgerOffloader(offloadPolicies);
+                            return initManagedLedgerOffloader(offloadPolicies, pulsarConnectorConfig);
                         }
                     });
             managedLedgerConfig.setLedgerOffloader(ledgerOffloader);
@@ -147,14 +147,16 @@ public class PulsarConnectorCache {
         return this.offloaderScheduler;
     }
 
-    private LedgerOffloader initManagedLedgerOffloader(OffloadPolicies offloadPolicies) {
+    private LedgerOffloader initManagedLedgerOffloader(OffloadPolicies offloadPolicies,
+                                                       PulsarConnectorConfig pulsarConnectorConfig) {
 
         try {
             if (StringUtils.isNotBlank(offloadPolicies.getManagedLedgerOffloadDriver())) {
                 checkNotNull(offloadPolicies.getOffloadersDirectory(),
                         "Offloader driver is configured to be '%s' but no offloaders directory is configured.",
                         offloadPolicies.getManagedLedgerOffloadDriver());
-                this.offloaderManager = OffloaderUtils.searchForOffloaders(offloadPolicies.getOffloadersDirectory());
+                this.offloaderManager = OffloaderUtils.searchForOffloaders(offloadPolicies.getOffloadersDirectory(),
+                        pulsarConnectorConfig.getNarExtractionDirectory());
                 LedgerOffloaderFactory offloaderFactory = this.offloaderManager.getOffloaderFactory(
                         offloadPolicies.getManagedLedgerOffloadDriver());
 

@@ -21,6 +21,7 @@ package org.apache.pulsar.functions.runtime.kubernetes;
 import lombok.Data;
 import lombok.experimental.Accessors;
 import org.apache.pulsar.common.configuration.FieldContext;
+import org.apache.pulsar.common.nar.NarClassLoader;
 
 import java.util.Map;
 
@@ -41,6 +42,12 @@ public class KubernetesRuntimeFactoryConfig {
         doc = "The docker image used to run function instance. By default it is `apachepulsar/pulsar`"
     )
     protected String pulsarDockerImageName;
+
+    @FieldContext(
+            doc = "The function docker images used to run function instance according to different "
+                    + "configurations provided by users. By default it is `apachepulsar/pulsar`"
+    )
+    protected Map<String, String> functionDockerImages;
 
     @FieldContext(
             doc = "The image pull policy for image used to run function instance. By default it is `IfNotPresent`"
@@ -139,4 +146,10 @@ public class KubernetesRuntimeFactoryConfig {
       doc = "The port inside the function pod on which prometheus metrics are exposed"
     )
     private Integer metricsPort = 9094;
+
+    @FieldContext(
+       doc = "The directory inside  the function pod where nar packages will be extracted"
+    )
+    private String narExtractionDirectory = NarClassLoader.DEFAULT_NAR_EXTRACTION_DIR;
+
 }

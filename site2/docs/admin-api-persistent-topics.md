@@ -364,6 +364,16 @@ It shows detailed statistics of a topic.
 
       -   **offloaded**: Whether this ledger is offloaded
 
+  -   **compactedLedger**: The ledgers holding un-acked messages after topic compaction.
+ 
+      -   **ledgerId**: Id of this ledger
+     
+      -   **entries**: Total number of entries belong to this ledger
+     
+      -   **size**: Size of messages written to this ledger (in bytes)
+     
+      -   **offloaded**: Will always be false for compacted topic ledger.
+      
   -   **cursors**: The list of all cursors on this topic. There will be one for every subscription you saw in the topic stats.
 
       -   **markDeletePosition**: All of messages before the markDeletePosition are acknowledged by the subscriber.
@@ -403,9 +413,16 @@ It shows detailed statistics of a topic.
         {
             "ledgerId": 324711539,
             "entries": 0,
-            "size": 0
+            "size": 0,
+            "offloaded": true
         }
     ],
+    "compactedLedger": {
+        "ledgerId": 324711540,
+        "entries": 10,
+        "size": 100,
+        "offloaded": false
+    },
     "cursors": {
         "my-subscription": {
             "markDeletePosition": "324711539:3133",
@@ -472,6 +489,30 @@ String topic = "persistent://my-tenant/my-namespace/my-topic";
 String subName = "my-subscription";
 int numMessages = 1;
 admin.persistentTopics().peekMessages(topic, subName, numMessages);
+```
+
+### Get message by ID
+
+It fetches the message with given ledger id and entry id.
+
+#### pulsar-admin
+
+```shell
+$ ./bin/pulsar-admin topics get-message-by-id \
+  persistent://public/default/my-topic \
+  -l 10 -e 0
+```
+
+#### REST API
+{@inject: endpoint|GET|/admin/v2/persistent/:tenant/:namespace/:topic/ledger/:ledgerId/entry/:entryId|operation/getMessageById}
+
+#### Java
+
+```java
+String topic = "persistent://my-tenant/my-namespace/my-topic";
+long ledgerId = 10;
+long entryId = 10;
+admin.persistentTopics().getMessageById(topic, ledgerId, entryId);
 ```
 
 ### Skip messages

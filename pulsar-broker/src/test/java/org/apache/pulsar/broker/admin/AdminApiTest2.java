@@ -40,6 +40,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import javax.ws.rs.core.Response.Status;
 
@@ -60,9 +61,9 @@ import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.admin.PulsarAdminException.PreconditionFailedException;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageRoutingMode;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.ProxyProtocol;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
@@ -315,19 +316,19 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
             admin.namespaces().setPersistence(namespace, new PersistencePolicies(3, 4, 3, 10.0));
             fail("should have failed");
         } catch (PulsarAdminException e) {
-            assertEquals(e.getStatusCode(), 412);
+            assertEquals(e.getStatusCode(), 400);
         }
         try {
             admin.namespaces().setPersistence(namespace, new PersistencePolicies(3, 3, 4, 10.0));
             fail("should have failed");
         } catch (PulsarAdminException e) {
-            assertEquals(e.getStatusCode(), 412);
+            assertEquals(e.getStatusCode(), 400);
         }
         try {
             admin.namespaces().setPersistence(namespace, new PersistencePolicies(6, 3, 1, 10.0));
             fail("should have failed");
         } catch (PulsarAdminException e) {
-            assertEquals(e.getStatusCode(), 412);
+            assertEquals(e.getStatusCode(), 400);
         }
 
         // make sure policies has not been changed
@@ -982,6 +983,7 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
         Consumer<byte[]> consumer = client.newConsumer().topic(topic)
             .subscriptionName(subscribeName)
             .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+            .acknowledgmentGroupTime(0, TimeUnit.SECONDS)
             .subscribe();
         Message<byte[]> message = consumer.receive();
 
@@ -1077,6 +1079,7 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
         Consumer<byte[]> consumer = client.newConsumer()
             .topic(topic)
             .subscriptionName(subName)
+            .acknowledgmentGroupTime(0, TimeUnit.SECONDS)
             .subscribe();
 
         @Cleanup
@@ -1114,7 +1117,7 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
 
     @Test(timeOut = 30000)
     public void testBacklogNoDelayed() throws PulsarClientException, PulsarAdminException, InterruptedException {
-        final String topic = "persistent://prop-xyz/ns1/precise-back-log-no-delayed";
+        final String topic = "persistent://prop-xyz/ns1/precise-back-log-no-delayed-" + UUID.randomUUID().toString();
         final String subName = "sub-name";
 
         @Cleanup
@@ -1125,6 +1128,7 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
             .topic(topic)
             .subscriptionName(subName)
             .subscriptionType(SubscriptionType.Shared)
+            .acknowledgmentGroupTime(0, TimeUnit.SECONDS)
             .subscribe();
 
         @Cleanup
@@ -1143,6 +1147,11 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
                 producer.send("message-1".getBytes(StandardCharsets.UTF_8));
             }
         }
+
+        // Wait for messages to be tracked for delayed delivery. This happens
+        // on the consumer dispatch side, so when the send() is complete we're
+        // not yet guaranteed to see the stats updated.
+        Thread.sleep(500);
 
         TopicStats topicStats = admin.topics().getStats(topic, true);
         assertEquals(topicStats.subscriptions.get(subName).msgBacklog, 10);
@@ -1171,6 +1180,7 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
         Consumer<byte[]> consumer = client.newConsumer()
             .topic(topic)
             .subscriptionName(subName)
+            .acknowledgmentGroupTime(0, TimeUnit.SECONDS)
             .subscribe();
 
         @Cleanup
@@ -1212,6 +1222,7 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
             .topic(topic)
             .subscriptionName(subName)
             .subscriptionType(SubscriptionType.Shared)
+            .acknowledgmentGroupTime(0, TimeUnit.SECONDS)
             .subscribe();
 
         @Cleanup
@@ -1245,4 +1256,42 @@ public class AdminApiTest2 extends MockedPulsarServiceBaseTest {
         assertEquals(topicStats.subscriptions.get(subName).msgBacklogNoDelayed, 0);
     }
 
+    @Test
+    public void testMaxNumPartitionsPerPartitionedTopicSuccess() {
+        final String topic = "persistent://prop-xyz/ns1/max-num-partitions-per-partitioned-topic-success";
+        pulsar.getConfiguration().setMaxNumPartitionsPerPartitionedTopic(3);
+
+        try {
+            admin.topics().createPartitionedTopic(topic, 2);
+        } catch (Exception e) {
+            fail("should not throw any exceptions");
+        }
+    }
+
+    @Test
+    public void testMaxNumPartitionsPerPartitionedTopicFailure() {
+        final String topic = "persistent://prop-xyz/ns1/max-num-partitions-per-partitioned-topic-failure";
+        pulsar.getConfiguration().setMaxNumPartitionsPerPartitionedTopic(2);
+
+        try {
+            admin.topics().createPartitionedTopic(topic, 3);
+            fail("should throw exception when number of partitions exceed than max partitions");
+        } catch (Exception e) {
+            assertTrue(e instanceof PulsarAdminException);
+        }
+    }
+
+    @Test
+    public void testUpdateClusterWithProxyUrl() throws Exception {
+        ClusterData cluster = new ClusterData(pulsar.getWebServiceAddress());
+        String clusterName = "test2";
+        admin.clusters().createCluster(clusterName, cluster);
+        Assert.assertEquals(admin.clusters().getCluster(clusterName), cluster);
+
+        // update
+        cluster.setProxyServiceUrl("proxy");
+        cluster.setProxyProtocol(ProxyProtocol.SNI);
+        admin.clusters().updateCluster(clusterName, cluster);
+        Assert.assertEquals(admin.clusters().getCluster(clusterName), cluster);
+    }
 }
